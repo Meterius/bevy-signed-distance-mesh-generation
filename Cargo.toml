@@ -1,5 +1,5 @@
 [package]
-name = "bevy-raymarching-prototype"
+name = "bevy-signed-distance-mesh-generation"
 version = "0.1.0"
 edition = "2021"
 

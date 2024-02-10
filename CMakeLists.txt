@@ -12,6 +12,8 @@ add_executable(
     cuda/includes/ray_marching.cu
     cuda/modules/compute_render.cu
     cuda/includes/types.cu
+        cuda/includes/utils.cu
+        cuda/includes/color.cu
 )
 
 set_target_properties(bevy_signed_distance_mesh_generation PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

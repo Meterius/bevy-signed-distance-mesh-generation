@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/bevy-signed-distance-mesh-generation.iml" filepath="$PROJECT_DIR$/.idea/bevy-signed-distance-mesh-generation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/bevy_signed_distance_mesh_generation.iml" filepath="$PROJECT_DIR$/.idea/bevy_signed_distance_mesh_generation.iml" />
+    </modules>
+  </component>
+</project>

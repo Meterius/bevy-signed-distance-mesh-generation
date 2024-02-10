@@ -1,0 +1,38 @@
+[package]
+name = "bevy-raymarching-prototype"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = { version = "0.12.1" }
+bevy_editor_pls = "0.7.0"
+bevy_flycam = "0.12.0"
+bevy_obj = "0.12.0"
+bytemuck = "1.14.0"
+cudarc = "0.10.0"
+itertools = "0.12.0"
+naga = "0.14.2"
+naga_oil = "0.11.0"
+nvtx = "1.2.0"
+proc-macro2 = "1.0.78"
+quote = "1.0.35"
+rand = "0.8.5"
+syn = "2.0.48"
+num-traits = "0.2.17"
+
+[build-dependencies]
+syn = "2.0.48"
+proc-macro2 = "1.0.76"
+regex = "1.10.2"
+quote = "1.0.35"
+naga = "0.14.2"
+naga_oil = "0.11.0"
+bindgen = "0.69.2"
+cc = "1.0.83"
+
+[profile.dev]
+incremental = true
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 1

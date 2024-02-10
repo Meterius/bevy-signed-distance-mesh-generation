@@ -1,0 +1,28 @@
+<component name="ProjectCodeStyleConfiguration">
+  <code_scheme name="Project" version="173">
+    <Objective-C>
+      <option name="FUNCTION_PARAMETERS_NEW_LINE_AFTER_LPAR" value="true" />
+      <option name="FUNCTION_PARAMETERS_NEW_LINE_BEFORE_RPAR" value="true" />
+      <option name="LAMBDA_CAPTURE_LIST_NEW_LINE_AFTER_LBRACKET" value="true" />
+      <option name="LAMBDA_CAPTURE_LIST_NEW_LINE_BEFORE_RBRACKET" value="true" />
+      <option name="STRUCTURED_BINDING_LIST_NEW_LINE_AFTER_LBRACKET" value="true" />
+      <option name="STRUCTURED_BINDING_LIST_NEW_LINE_BEFORE_RBRACKET" value="true" />
+      <option name="FUNCTION_CALL_ARGUMENTS_NEW_LINE_AFTER_LPAR" value="true" />
+      <option name="FUNCTION_CALL_ARGUMENTS_NEW_LINE_BEFORE_RPAR" value="true" />
+      <option name="TEMPLATE_PARAMETERS_WRAP" value="1" />
+      <option name="TEMPLATE_PARAMETERS_NEW_LINE_AFTER_LT" value="true" />
+      <option name="TEMPLATE_PARAMETERS_NEW_LINE_BEFORE_GT" value="true" />
+      <option name="TEMPLATE_CALL_ARGUMENTS_NEW_LINE_AFTER_LT" value="true" />
+      <option name="TEMPLATE_CALL_ARGUMENTS_NEW_LINE_BEFORE_GT" value="true" />
+      <option name="SPACE_BEFORE_INIT_LIST" value="true" />
+    </Objective-C>
+    <codeStyleSettings language="ObjectiveC">
+      <option name="SPACE_WITHIN_ARRAY_INITIALIZER_BRACES" value="true" />
+      <option name="ARRAY_INITIALIZER_LBRACE_ON_NEXT_LINE" value="true" />
+      <option name="ARRAY_INITIALIZER_RBRACE_ON_NEXT_LINE" value="true" />
+      <indentOptions>
+        <option name="CONTINUATION_INDENT_SIZE" value="4" />
+      </indentOptions>
+    </codeStyleSettings>
+  </code_scheme>
+</component>

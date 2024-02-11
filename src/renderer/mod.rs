@@ -14,6 +14,9 @@ const RENDER_TEXTURE_SIZE: (usize, usize) = (2560, 1440);
 
 const MESH_GENERATION_POINT_BUFFER_SIZE: usize = 65536;
 
+#[derive(Debug, Clone, Default, Event)]
+pub struct AdvanceMeshGenerationEvent {}
+
 #[derive(Debug, Clone, Default, Resource, Reflect)]
 #[reflect(Resource)]
 pub struct RenderSettings {
@@ -110,18 +113,32 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 // Mesh Generation
 
 fn advance_border_block_partition(
+    mut ev: EventReader<AdvanceMeshGenerationEvent>,
     render_context: NonSend<RenderCudaContext>,
     mut render_buffers: NonSendMut<RenderCudaBuffers>,
     mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
-    block_factor_increase: usize,
 ) {
-    let worst_case_next_point_count =
-        render_mesh_gen_state.partition_points.len() * block_factor_increase.pow(3);
+    if ev.is_empty() {
+        return;
+    }
+
+    for _ in ev.read() {}
+
+    let block_factor_increase: usize = 2;
+
+    let curr_point_count = render_mesh_gen_state.partition_points.len();
+    let worst_case_next_point_count = curr_point_count * block_factor_increase.pow(3);
+
+    info!(
+        "Advancing Mesh Generation; Current Point Count: {}; Worst Case Point Count: {};",
+        render_mesh_gen_state.partition_points.len(),
+        worst_case_next_point_count
+    );
 
     if worst_case_next_point_count > MESH_GENERATION_POINT_BUFFER_SIZE {
         panic!(
             "Advancing block border partitions may require {worst_case_next_point_count} points, \
-           but buffer can only store {MESH_GENERATION_POINT_BUFFER_SIZE}"
+           as we currently have {curr_point_count} points but buffer can only store {MESH_GENERATION_POINT_BUFFER_SIZE}"
         );
     }
 
@@ -176,7 +193,7 @@ fn advance_border_block_partition(
 
     render_mesh_gen_state
         .partition_points
-        .retain(|p| p.x.is_infinite() || p.y.is_infinite() || p.z.is_infinite());
+        .retain(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite());
 
     unsafe {
         cudarc::driver::result::memcpy_htod_sync(
@@ -185,8 +202,12 @@ fn advance_border_block_partition(
         )
         .unwrap()
     };
-
     render_mesh_gen_state.partition_factor *= block_factor_increase;
+
+    info!(
+        "Advanced Mesh Generation; Point Count: {}",
+        render_mesh_gen_state.partition_points.len()
+    );
 }
 
 // Render Systems
@@ -432,8 +453,12 @@ impl Plugin for RayMarcherRenderPlugin {
     fn build(&self, app: &mut App) {
         // Main App Build
         app.insert_resource(RenderSettings::default())
+            .add_event::<AdvanceMeshGenerationEvent>()
             .add_systems(Startup, (setup, setup_cuda))
             .add_systems(Last, render)
-            .add_systems(PostUpdate, (synchronize_target_sprite,));
+            .add_systems(
+                PostUpdate,
+                (advance_border_block_partition, synchronize_target_sprite),
+            );
     }
 }

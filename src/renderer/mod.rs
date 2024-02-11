@@ -7,12 +7,17 @@ use cudarc::driver::{
     CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig,
 };
 use cudarc::nvrtc::Ptx;
+use itertools::Itertools;
+use ordered_float::OrderedFloat;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 const RENDER_TEXTURE_SIZE: (usize, usize) = (2560, 1440);
 
 const MESH_GENERATION_POINT_BUFFER_SIZE: usize = 65536;
 const MESH_GENERATION_TRIANGLE_BUFFER_SIZE: usize = 65536;
+
+const MESH_GENERATION_OUTPUT_FILEPATH: &'static str = "generated_mesh.obj";
 
 #[derive(Debug, Clone, Default, Event)]
 pub struct AdvanceMeshGenerationEvent {}
@@ -312,26 +317,46 @@ fn finalize_mesh_generation(
 
             render_context.device.synchronize().unwrap();
 
-            let mut vertices: Vec<[f32; 3]> = vec![];
+            let mut indices = vec![];
 
-            for p in raw_triangles.into_iter() {
-                if p.x.is_finite() && p.y.is_finite() && p.z.is_finite() {
-                    vertices.push([p.x, p.y, p.z]);
+            let mut vertices = vec![];
+            let mut vertex_index_map = HashMap::<[i64; 3], usize>::default();
+
+            let f32_discrete = |x: f32| (x * 10e4f32).round() as i64;
+
+            let map_vertex =
+                |v: (f32, f32, f32)| [f32_discrete(v.0), f32_discrete(v.1), f32_discrete(v.2)];
+
+            let mut add_or_get_vertex = |v: (f32, f32, f32)| {
+                vertex_index_map
+                    .entry(map_vertex(v))
+                    .or_insert_with(|| {
+                        let new_index = vertices.len();
+                        vertices.push([v.0, v.1, v.2]);
+                        new_index
+                    })
+                    .clone()
+            };
+
+            for (v0, v1, v2) in raw_triangles.into_iter().tuples() {
+                if v0.x.is_finite() {
+                    indices.push([
+                        add_or_get_vertex((v0.x, v0.y, v0.z)),
+                        add_or_get_vertex((v1.x, v1.y, v1.z)),
+                        add_or_get_vertex((v2.x, v2.y, v2.z)),
+                    ]);
                 }
             }
 
-            let triangle_count = vertices.len() / 3;
-
-            let indices = (0..triangle_count)
-                .map(|idx| [3 * idx, 3 * idx + 1, 3 * idx + 2])
-                .collect();
+            let vertex_count = vertices.len();
+            let triangle_count = indices.len() / 3;
 
             let mesh = meshx::TriMesh::new(vertices, indices);
-            meshx::io::save_trimesh(&mesh, "./generated-mesh.obj").unwrap();
+            meshx::io::save_trimesh(&mesh, MESH_GENERATION_OUTPUT_FILEPATH).unwrap();
 
-            info!("Finalized Mesh Generation; Triangle Count: {triangle_count}; Stored generated mesh at ./generated-mesh.obj;");
+            info!("Finalized Mesh Generation; Vertex Count: {vertex_count}; Triangle Count: {triangle_count}; Stored generated mesh at {MESH_GENERATION_OUTPUT_FILEPATH};");
         } else {
-            info!("Finalized Mesh Generation; Empty Mesh;");
+            info!("Finalized Mesh Generation; Empty Mesh; Stored generated mesh at {MESH_GENERATION_OUTPUT_FILEPATH};");
         }
     }
 }

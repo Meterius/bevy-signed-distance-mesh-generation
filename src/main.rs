@@ -21,7 +21,7 @@ fn headless_startup(
     mut ew_exit: EventWriter<AppExit>,
 ) {
     ew_adv.send(AdvanceMeshGenerationEvent::default());
-    // ew_adv.send(AdvanceMeshGenerationEvent::default());
+    ew_adv.send(AdvanceMeshGenerationEvent::default());
     ew_fin.send(FinalizeMeshGenerationEvent::default());
     ew_exit.send(AppExit::default());
 }

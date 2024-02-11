@@ -20,6 +20,7 @@ rand = "0.8.5"
 syn = "2.0.48"
 num-traits = "0.2.17"
 meshx = { version = "0.6.1", features = ["io", "objio"] }
+ordered-float = "4.2.0"
 
 [build-dependencies]
 syn = "2.0.48"

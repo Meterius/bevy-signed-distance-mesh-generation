@@ -6,4 +6,4 @@ cmake-build-debug
 src/bindings/cuda.rs
 cuda/includes/libraries/glm/**/*
 logs
-generated-mesh.obj
+generated_mesh.obj

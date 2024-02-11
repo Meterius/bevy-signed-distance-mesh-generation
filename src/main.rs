@@ -1,4 +1,6 @@
 use crate::example_scene::ExampleScenePlugin;
+use crate::renderer::{AdvanceMeshGenerationEvent, FinalizeMeshGenerationEvent};
+use bevy::app::AppExit;
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
@@ -12,6 +14,17 @@ pub mod bindings;
 pub mod example_scene;
 pub mod input_handling;
 pub mod renderer;
+
+fn headless_startup(
+    mut ew_adv: EventWriter<AdvanceMeshGenerationEvent>,
+    mut ew_fin: EventWriter<FinalizeMeshGenerationEvent>,
+    mut ew_exit: EventWriter<AppExit>,
+) {
+    ew_adv.send(AdvanceMeshGenerationEvent::default());
+    // ew_adv.send(AdvanceMeshGenerationEvent::default());
+    ew_fin.send(FinalizeMeshGenerationEvent::default());
+    ew_exit.send(AppExit::default());
+}
 
 fn main() {
     unsafe { cudarc::driver::sys::cuProfilerStart() };
@@ -57,6 +70,10 @@ fn main() {
 
     app.add_systems(Startup, example_scene::setup_scene);
     app.add_systems(Update, input_handling::receive_input);
+
+    if std::env::var("HEADLESS").unwrap_or(String::from("")) != "" {
+        app.add_systems(Startup, headless_startup);
+    }
 
     app.run();
 }

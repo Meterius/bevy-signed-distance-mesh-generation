@@ -5,27 +5,15 @@ __device__ float sd_scene(vec3 p) {
 
     sd = min(sd, sd_obj(p));
     sd = min(sd, sd_box(p, vec3 { 0.0f, MESH_GENERATION_BB_MIN[1] - 0.5f, 0.0f }, vec3 { 10.0f, 1.0f, 10.0f }));
-
-    for (int dir = 0; dir < 3; dir++) {
-        for (int c0 = 0; c0 < 2; c0++) {
-            for (int c1 = 0; c1 < 2; c1++) {
-                vec3 m0 = MESH_GENERATION_BB_MIN;
-
-                if (c0) {
-                    m0[(dir + 1) % 3] = MESH_GENERATION_BB_MAX[(dir + 1) % 3];
-                }
-
-                if (c1) {
-                    m0[(dir + 2) % 3] = MESH_GENERATION_BB_MAX[(dir + 2) % 3];
-                }
-
-                vec3 m1 = m0;
-                m1[dir] = MESH_GENERATION_BB_MAX[dir];
-
-                sd = min(sd, sd_line(p, m0, m1) - 0.05f);
-            }
-        }
-    }
+    sd = min(
+        sd,
+        sd_box_skeleton(
+            p,
+            (MESH_GENERATION_BB_MIN + MESH_GENERATION_BB_MAX) / 2.0f,
+            MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN,
+            0.05f
+        )
+    );
 
     return sd;
 }
@@ -78,6 +66,17 @@ extern "C" __global__ void compute_render(
             vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
 
             for (int i = 0; i < partition.base_length; i++) {
+                /*for (int c1 = 0; c1 <= 1; c1++) {
+                    for (int c2 = 0; c2 <= 1; c2++) {
+                        for (int c3 = 0; c3 <= 1; c3++) {
+                            vec3 q = from_point(partition.bases[i]);
+                            q.x += c1 ? block_size.x : 0.0f;
+                            q.y += c2 ? block_size.y : 0.0f;
+                            q.z += c3 ? block_size.z : 0.0f;
+                            sd = min(sd, length(p - q) - 0.01f);
+                        }
+                    }
+                }*/
                 sd = min(sd, sd_box(p, from_point(partition.bases[i]) + block_size / 2.0f, block_size));
             }
         }

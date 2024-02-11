@@ -219,8 +219,9 @@ __device__ ivec2 render_texture_coord(const ivec2 render_texture_size) {
 #define MESH_GENERATION_BB_MAX (vec3 { (MESH_GENERATION_BB_SIZE / 2.0f) })
 
 __device__ float sd_obj(vec3 p) {
-    float d1 = length(p) - 0.5f;
-    float d2 = length(p - vec3 { 0.25f, 0.5f, 0.05f }) - 0.25f;
-    float d3 = sd_box(p, vec3 { 0.0f, -1.0f, 0.0f }, vec3 { 0.25f, 2.0f, 0.5f });
-    return smooth_min(smooth_min(d1, d2, 0.25f), d3, 0.5f);
+    return length(p) - 1.0f;
+    //float d1 = length(p) - 0.5f;
+    //float d2 = length(p - vec3 { 0.25f, 0.5f, 0.05f }) - 0.25f;
+    //float d3 = sd_box(p, vec3 { 0.0f, -1.0f, 0.0f }, vec3 { 0.25f, 2.0f, 0.5f });
+    //return smooth_min(smooth_min(d1, d2, 0.25f), d3, 0.5f);
 }

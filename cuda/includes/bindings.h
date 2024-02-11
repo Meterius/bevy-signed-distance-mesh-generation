@@ -6,7 +6,7 @@
 
 #define BLOCK_SIZE 128
 
-#define MESH_GENERATION_INIT_FACTOR 32
+#define MESH_GENERATION_INIT_FACTOR 16
 #define MESH_GENERATION_BB_SIZE 4.0f
 
 enum RayMarchHitOutcome {

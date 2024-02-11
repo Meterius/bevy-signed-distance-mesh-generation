@@ -11,8 +11,8 @@ struct McCube {
 };
 
 __device__ vec3 edge_vertex(const McCube &cube, const int i0, const int i1) {
-    float v = cube.values[i0] / (cube.values[i1] - cube.values[i0]);
-    return mix(cube.vertices[i0], cube.vertices[i1], 0.5f);
+    float v = cube.values[i0] / (cube.values[i0] - cube.values[i1]);
+    return mix(cube.vertices[i0], cube.vertices[i1], v);
 }
 
 __device__ void write_triangle(const McCube &cube, const int edge_indices[3], Point *const triangle) {

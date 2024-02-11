@@ -1,11 +1,10 @@
 use crate::bindings::cuda::BLOCK_SIZE;
 use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::render::extract_resource::ExtractResource;
-use bevy::render::Render;
 use bevy::window::PrimaryWindow;
 use bevy::{prelude::*, render::render_resource::*};
 use cudarc::driver::{
-    result, CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig,
+    CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig,
 };
 use cudarc::nvrtc::Ptx;
 use std::sync::Arc;
@@ -122,218 +121,218 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 fn advance_mesh_generation(
     mut ev: EventReader<AdvanceMeshGenerationEvent>,
     render_context: NonSend<RenderCudaContext>,
-    mut render_buffers: NonSendMut<RenderCudaBuffers>,
+    render_buffers: NonSendMut<RenderCudaBuffers>,
     mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
 ) {
     if ev.is_empty() {
         return;
     }
 
-    for _ in ev.read() {}
+    for _ in ev.read() {
+        let block_factor_increase: usize = if render_mesh_gen_state.initialized {
+            2
+        } else {
+            1
+        };
 
-    let block_factor_increase: usize = if render_mesh_gen_state.initialized {
-        2
-    } else {
-        1
-    };
+        let curr_point_count = if render_mesh_gen_state.initialized {
+            render_mesh_gen_state.partition_points.len()
+        } else {
+            render_mesh_gen_state.partition_factor.pow(3)
+        };
+        let worst_case_next_point_count = curr_point_count * block_factor_increase.pow(3);
 
-    let curr_point_count = if render_mesh_gen_state.initialized {
-        render_mesh_gen_state.partition_points.len()
-    } else {
-        render_mesh_gen_state.partition_factor.pow(3)
-    };
-    let worst_case_next_point_count = curr_point_count * block_factor_increase.pow(3);
+        info!(
+            "Advancing Mesh Generation; Current Point Count: {}; Worst Case Point Count: {};",
+            curr_point_count, worst_case_next_point_count
+        );
 
-    info!(
-        "Advancing Mesh Generation; Current Point Count: {}; Worst Case Point Count: {};",
-        curr_point_count, worst_case_next_point_count
-    );
-
-    if worst_case_next_point_count > MESH_GENERATION_POINT_BUFFER_SIZE {
-        error!(
+        if worst_case_next_point_count > MESH_GENERATION_POINT_BUFFER_SIZE {
+            error!(
             "Advancing block border partitions may require {worst_case_next_point_count} points, \
            as we currently have {curr_point_count} points but buffer can only store {MESH_GENERATION_POINT_BUFFER_SIZE}"
         );
-        return;
-    }
+            return;
+        }
 
-    if curr_point_count != 0 {
-        unsafe {
-            render_context
-                .func_compute_mesh_block_generation
-                .clone()
-                .launch(
-                    LaunchConfig {
-                        grid_dim: (
-                            (curr_point_count as f32 / BLOCK_SIZE as f32).ceil() as u32,
-                            1,
-                            1,
+        if curr_point_count != 0 {
+            unsafe {
+                render_context
+                    .func_compute_mesh_block_generation
+                    .clone()
+                    .launch(
+                        LaunchConfig {
+                            grid_dim: (
+                                (curr_point_count as f32 / BLOCK_SIZE as f32).ceil() as u32,
+                                1,
+                                1,
+                            ),
+                            block_dim: (BLOCK_SIZE, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            crate::bindings::cuda::BlockPartition {
+                                bases: std::mem::transmute(
+                                    *(&render_buffers.mesh_gen_point_buffers.0).device_ptr(),
+                                ),
+                                base_length: curr_point_count as _,
+                                factor: render_mesh_gen_state.partition_factor as _,
+                            },
+                            crate::bindings::cuda::BlockPartition {
+                                bases: std::mem::transmute(
+                                    *(&render_buffers.mesh_gen_point_buffers.1).device_ptr(),
+                                ),
+                                base_length: worst_case_next_point_count as _,
+                                factor: (render_mesh_gen_state.partition_factor
+                                    * block_factor_increase)
+                                    as _,
+                            },
+                            !render_mesh_gen_state.initialized,
                         ),
-                        block_dim: (BLOCK_SIZE, 1, 1),
-                        shared_mem_bytes: 0,
-                    },
-                    (
-                        crate::bindings::cuda::BlockPartition {
-                            bases: std::mem::transmute(
-                                *(&render_buffers.mesh_gen_point_buffers.0).device_ptr(),
-                            ),
-                            base_length: curr_point_count as _,
-                            factor: render_mesh_gen_state.partition_factor as _,
-                        },
-                        crate::bindings::cuda::BlockPartition {
-                            bases: std::mem::transmute(
-                                *(&render_buffers.mesh_gen_point_buffers.1).device_ptr(),
-                            ),
-                            base_length: worst_case_next_point_count as _,
-                            factor: (render_mesh_gen_state.partition_factor * block_factor_increase)
-                                as _,
-                        },
-                        !render_mesh_gen_state.initialized,
-                    ),
+                    )
+                    .unwrap()
+            };
+
+            render_mesh_gen_state.partition_points.resize(
+                worst_case_next_point_count,
+                crate::bindings::cuda::Point::default(),
+            );
+
+            unsafe {
+                cudarc::driver::result::memcpy_dtoh_sync(
+                    render_mesh_gen_state.partition_points.as_mut_slice(),
+                    *render_buffers.mesh_gen_point_buffers.1.device_ptr(),
                 )
                 .unwrap()
-        };
+            };
 
-        render_mesh_gen_state.partition_points.resize(
-            worst_case_next_point_count,
-            crate::bindings::cuda::Point::default(),
+            render_mesh_gen_state
+                .partition_points
+                .retain(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite());
+
+            unsafe {
+                cudarc::driver::result::memcpy_htod_sync(
+                    *render_buffers.mesh_gen_point_buffers.0.device_ptr(),
+                    render_mesh_gen_state.partition_points.as_slice(),
+                )
+                .unwrap()
+            };
+        }
+
+        render_mesh_gen_state.partition_factor *= block_factor_increase;
+        render_mesh_gen_state.initialized = true;
+
+        info!(
+            "Advanced Mesh Generation; Point Count: {}",
+            render_mesh_gen_state.partition_points.len()
         );
-
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_sync(
-                render_mesh_gen_state.partition_points.as_mut_slice(),
-                *render_buffers.mesh_gen_point_buffers.1.device_ptr(),
-            )
-            .unwrap()
-        };
-
-        render_mesh_gen_state
-            .partition_points
-            .retain(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite());
-
-        unsafe {
-            cudarc::driver::result::memcpy_htod_sync(
-                *render_buffers.mesh_gen_point_buffers.0.device_ptr(),
-                render_mesh_gen_state.partition_points.as_slice(),
-            )
-            .unwrap()
-        };
     }
-
-    render_mesh_gen_state.partition_factor *= block_factor_increase;
-    render_mesh_gen_state.initialized = true;
-
-    info!(
-        "Advanced Mesh Generation; Point Count: {}",
-        render_mesh_gen_state.partition_points.len()
-    );
 }
 
 fn finalize_mesh_generation(
     mut ev: EventReader<FinalizeMeshGenerationEvent>,
     render_context: NonSend<RenderCudaContext>,
-    mut render_buffers: NonSendMut<RenderCudaBuffers>,
-    mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
+    render_buffers: NonSend<RenderCudaBuffers>,
+    render_mesh_gen_state: Res<RenderCudaMeshGenState>,
 ) {
     if ev.is_empty() {
         return;
     }
 
-    for _ in ev.read() {}
+    for _ in ev.read() {
+        let worst_case_triangle_count = render_mesh_gen_state.partition_points.len() * 5;
 
-    let worst_case_triangle_count = render_mesh_gen_state.partition_points.len() * 5;
+        info!(
+            "Finalizing Mesh Generation; Current Point Count: {}; Worst Case Triangle Count: {};",
+            render_mesh_gen_state.partition_points.len(),
+            worst_case_triangle_count
+        );
 
-    info!(
-        "Finalizing Mesh Generation; Current Point Count: {}; Worst Case Triangle Count: {};",
-        render_mesh_gen_state.partition_points.len(),
-        worst_case_triangle_count
-    );
+        if !render_mesh_gen_state.initialized {
+            error!("Cannot finalize mesh as mesh generation has not been initialized yet.");
+        }
 
-    if !render_mesh_gen_state.initialized {
-        error!("Cannot finalize mesh as mesh generation has not been initialized yet.");
-    }
-
-    if worst_case_triangle_count > MESH_GENERATION_TRIANGLE_BUFFER_SIZE {
-        error!(
+        if worst_case_triangle_count > MESH_GENERATION_TRIANGLE_BUFFER_SIZE {
+            error!(
             "Finalizing mesh generation may require {worst_case_triangle_count} triangles, \
            as we currently have {} points but buffer can only store {MESH_GENERATION_TRIANGLE_BUFFER_SIZE}",
             render_mesh_gen_state.partition_points.len()
         );
-        return;
-    }
+            return;
+        }
 
-    if render_mesh_gen_state.partition_points.len() != 0 {
-        unsafe {
-            render_context
-                .func_compute_mesh_block_projected_marching_cube_mesh
-                .clone()
-                .launch(
-                    LaunchConfig {
-                        grid_dim: (
-                            (render_mesh_gen_state.partition_points.len() as f32
-                                / BLOCK_SIZE as f32)
-                                .ceil() as u32,
-                            1,
-                            1,
+        if render_mesh_gen_state.partition_points.len() != 0 {
+            unsafe {
+                render_context
+                    .func_compute_mesh_block_projected_marching_cube_mesh
+                    .clone()
+                    .launch(
+                        LaunchConfig {
+                            grid_dim: (
+                                (render_mesh_gen_state.partition_points.len() as f32
+                                    / BLOCK_SIZE as f32)
+                                    .ceil() as u32,
+                                1,
+                                1,
+                            ),
+                            block_dim: (BLOCK_SIZE, 1, 1),
+                            shared_mem_bytes: 0,
+                        },
+                        (
+                            crate::bindings::cuda::BlockPartition {
+                                bases: std::mem::transmute(
+                                    *(&render_buffers.mesh_gen_point_buffers.0).device_ptr(),
+                                ),
+                                base_length: render_mesh_gen_state.partition_points.len() as _,
+                                factor: render_mesh_gen_state.partition_factor as _,
+                            },
+                            crate::bindings::cuda::NaiveTriMesh {
+                                vertices: std::mem::transmute(
+                                    *(&render_buffers.mesh_gen_triangle_buffer).device_ptr(),
+                                ),
+                            },
                         ),
-                        block_dim: (BLOCK_SIZE, 1, 1),
-                        shared_mem_bytes: 0,
-                    },
-                    (
-                        crate::bindings::cuda::BlockPartition {
-                            bases: std::mem::transmute(
-                                *(&render_buffers.mesh_gen_point_buffers.0).device_ptr(),
-                            ),
-                            base_length: render_mesh_gen_state.partition_points.len() as _,
-                            factor: render_mesh_gen_state.partition_factor as _,
-                        },
-                        crate::bindings::cuda::NaiveTriMesh {
-                            vertices: std::mem::transmute(
-                                *(&render_buffers.mesh_gen_triangle_buffer).device_ptr(),
-                            ),
-                        },
-                    ),
+                    )
+                    .unwrap()
+            };
+
+            let mut raw_triangles = Vec::with_capacity(worst_case_triangle_count * 3);
+
+            for _ in 0..worst_case_triangle_count * 3 {
+                raw_triangles.push(crate::bindings::cuda::Point::default());
+            }
+
+            unsafe {
+                cudarc::driver::result::memcpy_dtoh_sync(
+                    raw_triangles.as_mut_slice(),
+                    *render_buffers.mesh_gen_triangle_buffer.device_ptr(),
                 )
                 .unwrap()
-        };
+            };
 
-        let mut raw_triangles = Vec::with_capacity(worst_case_triangle_count * 3);
+            render_context.device.synchronize().unwrap();
 
-        for _ in 0..worst_case_triangle_count * 3 {
-            raw_triangles.push(crate::bindings::cuda::Point::default());
-        }
+            let mut vertices: Vec<[f32; 3]> = vec![];
 
-        unsafe {
-            cudarc::driver::result::memcpy_dtoh_sync(
-                raw_triangles.as_mut_slice(),
-                *render_buffers.mesh_gen_triangle_buffer.device_ptr(),
-            )
-            .unwrap()
-        };
-
-        render_context.device.synchronize().unwrap();
-
-        let mut vertices: Vec<[f32; 3]> = vec![];
-
-        for p in raw_triangles.into_iter() {
-            if p.x.is_finite() && p.y.is_finite() && p.z.is_finite() {
-                vertices.push([p.x, p.y, p.z]);
+            for p in raw_triangles.into_iter() {
+                if p.x.is_finite() && p.y.is_finite() && p.z.is_finite() {
+                    vertices.push([p.x, p.y, p.z]);
+                }
             }
+
+            let triangle_count = vertices.len() / 3;
+
+            let indices = (0..triangle_count)
+                .map(|idx| [3 * idx, 3 * idx + 1, 3 * idx + 2])
+                .collect();
+
+            let mesh = meshx::TriMesh::new(vertices, indices);
+            meshx::io::save_trimesh(&mesh, "./generated-mesh.obj").unwrap();
+
+            info!("Finalized Mesh Generation; Triangle Count: {triangle_count}; Stored generated mesh at ./generated-mesh.obj;");
+        } else {
+            info!("Finalized Mesh Generation; Empty Mesh;");
         }
-
-        let vertex_count = vertices.len();
-        let triangle_count = vertices.len() / 3;
-
-        let indices = (0..triangle_count)
-            .map(|idx| [3 * idx, 3 * idx + 1, 3 * idx + 2])
-            .collect();
-
-        let mesh = meshx::TriMesh::new(vertices, indices);
-        meshx::io::save_trimesh(&mesh, "./generated-mesh.obj").unwrap();
-
-        info!("Finalized Mesh Generation; Triangle Count: {triangle_count}; Stored generated mesh at ./generated-mesh.obj;");
-    } else {
-        info!("Finalized Mesh Generation; Empty Mesh;");
     }
 }
 
@@ -390,9 +389,9 @@ fn setup_cuda(world: &mut World) {
             .unwrap()
     };
 
-    let mut partition_points = Vec::new();
+    let partition_points = Vec::new();
 
-    let mut mesh_gen_point_buffers = unsafe {
+    let mesh_gen_point_buffers = unsafe {
         (
             device
                 .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_POINT_BUFFER_SIZE)
@@ -403,7 +402,7 @@ fn setup_cuda(world: &mut World) {
         )
     };
 
-    let mut mesh_gen_triangle_buffer = unsafe {
+    let mesh_gen_triangle_buffer = unsafe {
         device
             .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_TRIANGLE_BUFFER_SIZE * 3)
             .unwrap()
@@ -586,7 +585,7 @@ impl Plugin for RayMarcherRenderPlugin {
                 PostUpdate,
                 (
                     advance_mesh_generation,
-                    finalize_mesh_generation,
+                    finalize_mesh_generation.after(advance_mesh_generation),
                     synchronize_target_sprite,
                 ),
             );

@@ -58,6 +58,27 @@ __device__ float sd_unit_mandelbulb(const vec3 p) {
 
 // primitives
 
+__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd) {
+    return distance(bl + bd * dot(p - bl, bd), p);
+}
+
+__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd, float len) {
+    float d = dot(p - bl, bd);
+
+    if (d < 0) {
+        return distance(bl, p);
+    } else if (d > len) {
+        return distance(bl + len * bd, p);
+    }
+
+    return distance(bl + bd * d, p);
+}
+
+__device__ float sd_line(const vec3 p, const vec3 b0, const vec3 b1) {
+    float len = length(b1 - b0);
+    return sd_ray(p, b0, (b1 - b0) / len, len);
+}
+
 __device__ float sd_unit_sphere(const vec3 p) {
     return length(p) - 0.5f;
 }
@@ -67,6 +88,28 @@ __device__ float sd_box(const vec3 p, const vec3 bp, const vec3 bs) {
     float udst = length(max(q, vec3(0.0f)));
     float idst = maximum(min(q, vec3(0.0f)));
     return udst + idst;
+}
+
+__device__ float sd_box_skeleton(const vec3 p, const vec3 bp, const vec3 bs, const float lw) {
+    vec3 bpl = bp - bs / 2.0f;
+    float sd = MAX_POSITIVE_F32;
+
+    for (int dir = 0; dir < 3; dir++) {
+        for (int c0 = 0; c0 < 2; c0++) {
+            for (int c1 = 0; c1 < 2; c1++) {
+                vec3 m0 = bpl;
+                m0[(dir + 1) % 3] += c0 ? bs[(dir + 1) % 2] : 0.0f;
+                m0[(dir + 2) % 3] += c1 ? bs[(dir + 2) % 3] : 0.0f;
+
+                vec3 m1 = m0;
+                m1[dir] += bs[dir];
+
+                sd = min(sd, sd_line(p, m0, m1) - lw);
+            }
+        }
+    }
+
+    return sd;
 }
 
 __device__ float sd_simple_box(const vec3 p, const vec3 bp, const vec3 bs) {
@@ -129,27 +172,6 @@ float ray_distance_to_bb(const Ray &ray, const vec3 &bb_min, const vec3 &bb_max)
 
     // Ray intersects all 3 slabs. Return distance to first hit
     return tmin > 0 ? tmin : tmax;
-}
-
-__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd) {
-    return distance(bl + bd * dot(p - bl, bd), p);
-}
-
-__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd, float len) {
-    float d = dot(p - bl, bd);
-
-    if (d < 0) {
-        return distance(bl, p);
-    } else if (d > len) {
-        return distance(bl + len * bd, p);
-    }
-
-    return distance(bl + bd * d, p);
-}
-
-__device__ float sd_line(const vec3 p, const vec3 b0, const vec3 b1) {
-    float len = length(b1 - b0);
-    return sd_ray(p, b0, (b1 - b0) / len, len);
 }
 
 // normals

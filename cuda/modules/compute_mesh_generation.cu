@@ -38,9 +38,9 @@ extern "C" __global__ void compute_mesh_block_generation(
                     for (int c = 1; c < 8; c++) {
                         if (prev != obj_contains(
                             {
-                                c & 1 ? lower[0] : upper[0],
-                                c & 2 ? lower[1] : upper[1],
-                                c & 4 ? lower[2] : upper[2]
+                                c & 1 ? upper[0] : lower[0],
+                                c & 2 ? upper[1] : lower[1],
+                                c & 4 ? upper[2] : lower[2]
                             }
                         )) {
                             is_border = true;

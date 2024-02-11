@@ -27,6 +27,8 @@ __device__ vec3 from_point(const Point p) { return { p.x, p.y, p.z }; }
 
 __device__ quat from_quat_array(const float p[4]) { return {p[0], p[1], p[2], p[3]}; }
 
+__device__ Point to_point(const vec3 p) { return { p.x, p.y, p.z }; }
+
 template<uint32_t N>
 class BitSet {
     static_assert(N > 0, "N must be positive");
@@ -63,4 +65,15 @@ public:
     __device__ void set(const uint32_t index, const bool value, const bool condition) {
         bits = condition ? (bits & ~(1 << index)) | (value << index) : bits;
     }
+};
+
+template<typename T, uint32_t N>
+struct Array {
+    T data[N];
+};
+
+template<typename T, uint32_t N>
+struct DynamicArray {
+    T data[N];
+    unsigned int length;
 };

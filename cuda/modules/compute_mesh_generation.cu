@@ -1,4 +1,8 @@
 #include "./common.cu"
+#include "../includes/marching_cubes.cu"
+
+#include <assert.h>
+#include <stdio.h>
 
 __device__ bool obj_contains(const vec3 p) {
     return sd_obj(p) <= 0.0f;
@@ -6,18 +10,22 @@ __device__ bool obj_contains(const vec3 p) {
 
 extern "C" __global__ void compute_mesh_block_generation(
     BlockPartition prev_partition,
-    BlockPartition partition
+    BlockPartition partition,
+    bool is_initial
 ) {
-    const int increase_fac = partition.factor / prev_partition.factor;
+    const int increase_fac = is_initial ? 1 : partition.factor / prev_partition.factor;
     const int increase_fac2 = increase_fac * increase_fac;
     const int increase_fac3 = increase_fac2 * increase_fac;
 
     const vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
-
     const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (id < partition.base_length) {
-        const vec3 base = from_point(prev_partition.bases[id]);
+        const vec3 base = is_initial ? MESH_GENERATION_BB_MIN + block_size * vec3(
+            (float) (id / (partition.factor * partition.factor)),
+            fmod((float) (id / partition.factor), (float) partition.factor),
+            fmod((float) id, (float) partition.factor)
+        ) : from_point(prev_partition.bases[id]);
 
         for (int i = 0; i < increase_fac; i++) {
             for (int j = 0; j < increase_fac; j++) {
@@ -50,5 +58,31 @@ extern "C" __global__ void compute_mesh_block_generation(
     }
 }
 
-extern "C" __global__ void compute_mesh_generation() {
+extern "C" __global__ void compute_mesh_block_projected_marching_cube_mesh(
+    BlockPartition partition,
+    NaiveTriMesh tri_mesh
+) {
+    const vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
+    const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (id < partition.base_length) {
+        const vec3 base = from_point(partition.bases[id]);
+
+        McCube cube;
+        for (int c = 0; c < 8; c++) {
+            vec3 v = base;
+            v[0] += (c % 4) == 1 || (c % 4) == 2 ? block_size[0] : 0.0f;
+            v[1] += (c % 4) >= 2 ? block_size[1] : 0.0f;
+            v[2] += c >= 4 ? block_size[2] : 0.0f;
+
+            cube.vertices[c] = v;
+            cube.values[c] = sd_obj(v);
+        }
+
+        int tr_count = march_cube(cube, &tri_mesh.vertices[3 * 5 * id]);
+
+        for (int i = 3 * tr_count; i < 3 * 5; i++) {
+            tri_mesh.vertices[3 * 5 * id + i] = { INFINITY, INFINITY, INFINITY };
+        }
+    }
 }

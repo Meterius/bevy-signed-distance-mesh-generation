@@ -17,6 +17,8 @@ add_executable(
         cuda/modules/compute_mesh_generation.cu
         cuda/includes/bindings.h
         cuda/modules/common.cu
+        cuda/includes/marching_cubes_constants.cu
+        cuda/includes/marching_cubes.cu
 )
 
 set_target_properties(bevy_signed_distance_mesh_generation PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

@@ -6,6 +6,9 @@
 
 #define BLOCK_SIZE 128
 
+#define MESH_GENERATION_INIT_FACTOR 32
+#define MESH_GENERATION_BB_SIZE 6.0f
+
 enum RayMarchHitOutcome {
     Collision, StepLimit, DepthLimit
 };
@@ -15,6 +18,7 @@ struct GlobalsBuffer {
     float time;
     unsigned int render_texture_size[2];
     float render_screen_size[2];
+    bool show_partition;
 };
 
 struct CameraBuffer {
@@ -35,4 +39,16 @@ struct Rgba {
 struct RenderTexture {
     unsigned int size[2];
     struct Rgba* data;
+};
+
+struct Point {
+    float x;
+    float y;
+    float z;
+};
+
+struct BlockPartition {
+    struct Point* bases;
+    int base_length;
+    int factor;
 };

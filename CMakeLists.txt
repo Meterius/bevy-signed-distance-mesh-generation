@@ -14,6 +14,9 @@ add_executable(
     cuda/includes/types.cu
         cuda/includes/utils.cu
         cuda/includes/color.cu
+        cuda/modules/compute_mesh_generation.cu
+        cuda/includes/bindings.h
+        cuda/modules/common.cu
 )
 
 set_target_properties(bevy_signed_distance_mesh_generation PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

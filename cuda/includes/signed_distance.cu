@@ -17,6 +17,11 @@ __device__ vec3 wrap(const vec3 p, const vec3 lower, const vec3 higher) {
     };
 }
 
+__device__ float smooth_min(const float a, const float b, const float k) {
+    float h = max(k - abs(a - b), 0.0f) / k;
+    return min(a, b) - h * h * h * k * (1.0f / 6.0f);
+}
+
 // fractals
 
 #define POWER 7.0f
@@ -126,12 +131,33 @@ float ray_distance_to_bb(const Ray &ray, const vec3 &bb_min, const vec3 &bb_max)
     return tmin > 0 ? tmin : tmax;
 }
 
+__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd) {
+    return distance(bl + bd * dot(p - bl, bd), p);
+}
+
+__device__ float sd_ray(const vec3 p, const vec3 bl, const vec3 bd, float len) {
+    float d = dot(p - bl, bd);
+
+    if (d < 0) {
+        return distance(bl, p);
+    } else if (d > len) {
+        return distance(bl + len * bd, p);
+    }
+
+    return distance(bl + bd * d, p);
+}
+
+__device__ float sd_line(const vec3 p, const vec3 b0, const vec3 b1) {
+    float len = length(b1 - b0);
+    return sd_ray(p, b0, (b1 - b0) / len, len);
+}
+
 // normals
 
 #define NORMAL_EPSILON 0.001f
 
 template<typename SFunc>
-__device__ vec3 emperical_normal(
+__device__ vec3 empirical_normal(
     const SFunc sd_func,
     const vec3 p
 ) {
@@ -151,4 +177,42 @@ __device__ vec3 emperical_normal(
                 sd_func(p + vec3(0.0f, 0.0f, -2.0f * NORMAL_EPSILON)));
 
     return normalize(vec3(dx, dy, dz));
+}
+
+struct NormalPlane {
+    vec3 up;
+    vec3 forward;
+    vec3 right;
+};
+
+template<typename SFunc>
+__device__ NormalPlane empirical_normal_plane(
+    const SFunc sd_func,
+    const vec3 p
+) {
+    NormalPlane plane;
+
+    plane.up = empirical_normal(sd_func, p);
+    plane.right = cross(
+        plane.up,
+        abs(dot(plane.up, vec3 { 0.0f, 0.0f, 1.0f })) < 0.5f ? vec3 { 0.0f, 0.0f, 1.0f } : vec3 { 0.0f, 1.0f, 0.0f }
+    );
+    plane.forward = cross(plane.up, plane.right);
+
+    return plane;
+}
+
+template<typename SFunc>
+__device__ vec3 closest_surface_point(const SFunc sd_func, const vec3 p) {
+    vec3 g = p;
+
+    bool collision = false;
+    for (int i = 0; !collision && i < 10000; i++) {
+        float sd = sd_func(g);
+        vec3 n = empirical_normal(sd_func, g);
+        g -= sd * n;
+        collision = abs(sd) <= 0.001f;
+    }
+
+    return g;
 }

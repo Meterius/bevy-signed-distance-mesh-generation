@@ -1,16 +1,24 @@
+use crate::bindings::cuda::BLOCK_SIZE;
 use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::render::extract_resource::ExtractResource;
+use bevy::render::Render;
 use bevy::window::PrimaryWindow;
 use bevy::{prelude::*, render::render_resource::*};
-use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig};
+use cudarc::driver::{
+    result, CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig,
+};
 use cudarc::nvrtc::Ptx;
 use std::sync::Arc;
 
 const RENDER_TEXTURE_SIZE: (usize, usize) = (2560, 1440);
 
+const MESH_GENERATION_POINT_BUFFER_SIZE: usize = 65536;
+
 #[derive(Debug, Clone, Default, Resource, Reflect)]
 #[reflect(Resource)]
-pub struct RenderSettings {}
+pub struct RenderSettings {
+    pub show_partition: bool,
+}
 
 #[derive(Debug, Clone, Default, Component)]
 pub struct RenderCameraTarget {}
@@ -28,6 +36,7 @@ struct RenderCudaContext {
     #[allow(dead_code)]
     pub device: Arc<CudaDevice>,
     pub func_compute_render: CudaFunction,
+    pub func_compute_mesh_block_generation: CudaFunction,
 }
 
 struct RenderCudaStreams {
@@ -36,6 +45,16 @@ struct RenderCudaStreams {
 
 struct RenderCudaBuffers {
     render_texture_buffer: CudaSlice<crate::bindings::cuda::Rgba>,
+    mesh_gen_point_buffers: (
+        CudaSlice<crate::bindings::cuda::Point>,
+        CudaSlice<crate::bindings::cuda::Point>,
+    ),
+}
+
+#[derive(Resource, Default, Clone)]
+struct RenderCudaMeshGenState {
+    partition_points: Vec<crate::bindings::cuda::Point>,
+    partition_factor: usize,
 }
 
 // App Systems
@@ -88,6 +107,88 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.insert_resource(RenderTargetImage(image));
 }
 
+// Mesh Generation
+
+fn advance_border_block_partition(
+    render_context: NonSend<RenderCudaContext>,
+    mut render_buffers: NonSendMut<RenderCudaBuffers>,
+    mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
+    block_factor_increase: usize,
+) {
+    let worst_case_next_point_count =
+        render_mesh_gen_state.partition_points.len() * block_factor_increase.pow(3);
+
+    if worst_case_next_point_count > MESH_GENERATION_POINT_BUFFER_SIZE {
+        panic!(
+            "Advancing block border partitions may require {worst_case_next_point_count} points, \
+           but buffer can only store {MESH_GENERATION_POINT_BUFFER_SIZE}"
+        );
+    }
+
+    unsafe {
+        render_context
+            .func_compute_mesh_block_generation
+            .clone()
+            .launch(
+                LaunchConfig {
+                    grid_dim: (
+                        (render_mesh_gen_state.partition_points.len() as f32 / BLOCK_SIZE as f32)
+                            .ceil() as u32,
+                        1,
+                        1,
+                    ),
+                    block_dim: (BLOCK_SIZE, 1, 1),
+                    shared_mem_bytes: 0,
+                },
+                (
+                    crate::bindings::cuda::BlockPartition {
+                        bases: std::mem::transmute(
+                            *(&render_buffers.mesh_gen_point_buffers.0).device_ptr(),
+                        ),
+                        base_length: render_mesh_gen_state.partition_points.len() as _,
+                        factor: render_mesh_gen_state.partition_factor as _,
+                    },
+                    crate::bindings::cuda::BlockPartition {
+                        bases: std::mem::transmute(
+                            *(&render_buffers.mesh_gen_point_buffers.1).device_ptr(),
+                        ),
+                        base_length: worst_case_next_point_count as _,
+                        factor: (render_mesh_gen_state.partition_factor * block_factor_increase)
+                            as _,
+                    },
+                ),
+            )
+            .unwrap()
+    };
+
+    render_mesh_gen_state.partition_points.resize(
+        worst_case_next_point_count,
+        crate::bindings::cuda::Point::default(),
+    );
+
+    unsafe {
+        cudarc::driver::result::memcpy_dtoh_sync(
+            render_mesh_gen_state.partition_points.as_mut_slice(),
+            *render_buffers.mesh_gen_point_buffers.1.device_ptr(),
+        )
+        .unwrap()
+    };
+
+    render_mesh_gen_state
+        .partition_points
+        .retain(|p| p.x.is_infinite() || p.y.is_infinite() || p.z.is_infinite());
+
+    unsafe {
+        cudarc::driver::result::memcpy_htod_sync(
+            *render_buffers.mesh_gen_point_buffers.0.device_ptr(),
+            render_mesh_gen_state.partition_points.as_slice(),
+        )
+        .unwrap()
+    };
+
+    render_mesh_gen_state.partition_factor *= block_factor_increase;
+}
+
 // Render Systems
 
 fn setup_cuda(world: &mut World) {
@@ -109,7 +210,20 @@ fn setup_cuda(world: &mut World) {
         )
         .unwrap();
 
+    device
+        .load_ptx(
+            Ptx::from_src(include_str!(
+                "../../assets/cuda/compiled/compute_mesh_generation.ptx"
+            )),
+            "compute_mesh_generation",
+            &["compute_mesh_block_generation"],
+        )
+        .unwrap();
+
     let func_compute_render = device.get_func("compute_render", "compute_render").unwrap();
+    let func_compute_mesh_block_generation = device
+        .get_func("compute_mesh_generation", "compute_mesh_block_generation")
+        .unwrap();
 
     info!("CUDA PTX Loading took {:.2?} seconds", start.elapsed());
 
@@ -119,16 +233,62 @@ fn setup_cuda(world: &mut World) {
             .unwrap()
     };
 
+    let mut partition_points =
+        Vec::with_capacity(crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR.pow(3) as _);
+
+    {
+        let block_size = crate::bindings::cuda::MESH_GENERATION_BB_SIZE as f32
+            / crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR as f32;
+        for i in 0..crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR {
+            for j in 0..crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR {
+                for k in 0..crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR {
+                    partition_points.push(crate::bindings::cuda::Point {
+                        x: -crate::bindings::cuda::MESH_GENERATION_BB_SIZE as f32 / 2.0
+                            + i as f32 * block_size,
+                        y: -crate::bindings::cuda::MESH_GENERATION_BB_SIZE as f32 / 2.0
+                            + j as f32 * block_size,
+                        z: -crate::bindings::cuda::MESH_GENERATION_BB_SIZE as f32 / 2.0
+                            + k as f32 * block_size,
+                    })
+                }
+            }
+        }
+    }
+
+    let mut mesh_gen_point_buffers = unsafe {
+        (
+            device
+                .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_POINT_BUFFER_SIZE)
+                .unwrap(),
+            device
+                .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_POINT_BUFFER_SIZE)
+                .unwrap(),
+        )
+    };
+
+    unsafe {
+        cudarc::driver::result::memcpy_htod_sync(
+            *mesh_gen_point_buffers.0.device_ptr(),
+            partition_points.as_slice(),
+        )
+        .unwrap()
+    };
+
     let render_stream = device.fork_default_stream().unwrap();
 
-    world.insert_resource(RenderSettings::default());
     world.insert_non_send_resource(RenderCudaContext {
         device,
         func_compute_render,
+        func_compute_mesh_block_generation,
     });
     world.insert_non_send_resource(RenderCudaStreams { render_stream });
     world.insert_non_send_resource(RenderCudaBuffers {
         render_texture_buffer,
+        mesh_gen_point_buffers,
+    });
+    world.insert_resource(RenderCudaMeshGenState {
+        partition_points,
+        partition_factor: crate::bindings::cuda::MESH_GENERATION_INIT_FACTOR as _,
     });
 }
 
@@ -139,8 +299,9 @@ fn render(
     render_streams: NonSendMut<RenderCudaStreams>,
     render_buffers: NonSendMut<RenderCudaBuffers>,
     render_target_image: Res<RenderTargetImage>,
+    render_settings: Res<RenderSettings>,
+    render_mesh_gen_state: Res<RenderCudaMeshGenState>,
     mut images: ResMut<Assets<Image>>,
-
     mut tick: Local<u64>,
 ) {
     let range_id = nvtx::range_start!("Render System Wait For Previous Frame");
@@ -178,6 +339,7 @@ fn render(
             cam.logical_viewport_size().map(|s| s.x).unwrap_or(1.0) as _,
             cam.logical_viewport_size().map(|s| s.y).unwrap_or(1.0) as _,
         ],
+        show_partition: render_settings.show_partition,
     };
 
     let camera = crate::bindings::cuda::CameraBuffer {
@@ -191,10 +353,16 @@ fn render(
         },
     };
 
-    let render_texture = crate::bindings::cuda::RenderTexture {
-        data: unsafe {
-            std::mem::transmute(*(&render_buffers.render_texture_buffer).device_ptr())
+    let partition = crate::bindings::cuda::BlockPartition {
+        bases: unsafe {
+            std::mem::transmute(*(&render_buffers.mesh_gen_point_buffers.0).device_ptr())
         },
+        base_length: render_mesh_gen_state.partition_points.len() as _,
+        factor: render_mesh_gen_state.partition_factor as _,
+    };
+
+    let render_texture = crate::bindings::cuda::RenderTexture {
+        data: unsafe { std::mem::transmute(*(&render_buffers.render_texture_buffer).device_ptr()) },
         size: [RENDER_TEXTURE_SIZE.0 as _, RENDER_TEXTURE_SIZE.1 as _],
     };
 
@@ -218,6 +386,7 @@ fn render(
                     render_texture.clone(),
                     globals.clone(),
                     camera.clone(),
+                    partition.clone(),
                 ),
             )
             .unwrap()
@@ -262,7 +431,8 @@ pub struct RayMarcherRenderPlugin {}
 impl Plugin for RayMarcherRenderPlugin {
     fn build(&self, app: &mut App) {
         // Main App Build
-        app.add_systems(Startup, (setup, setup_cuda))
+        app.insert_resource(RenderSettings::default())
+            .add_systems(Startup, (setup, setup_cuda))
             .add_systems(Last, render)
             .add_systems(PostUpdate, (synchronize_target_sprite,));
     }

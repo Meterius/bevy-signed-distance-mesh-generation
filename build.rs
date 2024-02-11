@@ -77,6 +77,7 @@ fn compile_cuda() {
 
     for func in vec![
         "compute_render",
+        "compute_mesh_generation"
     ]
     .into_iter()
     {
@@ -145,6 +146,7 @@ fn compile_cuda() {
         add_derive_extensions_to_structs(
             bindings.to_string().as_str(),
             &[
+                "Point"
             ],
             &["Default"],
         )

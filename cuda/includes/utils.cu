@@ -3,6 +3,8 @@
 #include "./libraries/glm/glm.hpp"
 #include "./libraries/glm/gtx/quaternion.hpp"
 
+#include "./bindings.h"
+
 using namespace glm;
 
 #define MAX_POSITIVE_F32 3.40282347E+38
@@ -20,6 +22,8 @@ __device__ float maximum(const vec3 p) { return max(max(p.x, p.y), p.z); }
 __device__ float maximum(const vec2 p) { return max(p.x, p.y); }
 
 __device__ vec3 from_array(const float p[3]) { return {p[0], p[1], p[2]}; }
+
+__device__ vec3 from_point(const Point p) { return { p.x, p.y, p.z }; }
 
 __device__ quat from_quat_array(const float p[4]) { return {p[0], p[1], p[2], p[3]}; }
 

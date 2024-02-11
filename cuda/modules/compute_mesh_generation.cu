@@ -65,6 +65,8 @@ extern "C" __global__ void compute_mesh_block_projected_marching_cube_mesh(
     const vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
     const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
 
+    const unsigned int triangle_start = 3 * 5 * id;
+
     if (id < partition.base_length) {
         const vec3 base = from_point(partition.bases[id]);
 
@@ -79,10 +81,24 @@ extern "C" __global__ void compute_mesh_block_projected_marching_cube_mesh(
             cube.values[c] = sd_obj(v);
         }
 
-        int tr_count = march_cube(cube, &tri_mesh.vertices[3 * 5 * id]);
+        int tr_count = march_cube(cube, &tri_mesh.vertices[triangle_start]);
+
+        for (int k = 0; k < tr_count; k++) {
+            vec3 v0 = from_point(tri_mesh.vertices[triangle_start + 3 * k]);
+            vec3 v1 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 1]);
+            vec3 v2 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 2]);
+
+            vec3 triangle_normal = normalize(cross(v1 - v0, v2 - v0));
+            vec3 actual_normal = empirical_normal(sd_obj, (v0 + v1 + v2) / 3.0f);
+
+            if (dot(triangle_normal, actual_normal) <= 0.0f) {
+                tri_mesh.vertices[triangle_start + 3 * k] = to_point(v2);
+                tri_mesh.vertices[triangle_start + 3 * k + 2] = to_point(v0);
+            }
+        }
 
         for (int i = 3 * tr_count; i < 3 * 5; i++) {
-            tri_mesh.vertices[3 * 5 * id + i] = { INFINITY, INFINITY, INFINITY };
+            tri_mesh.vertices[triangle_start + i] = { INFINITY, INFINITY, INFINITY };
         }
     }
 }

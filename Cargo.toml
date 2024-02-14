@@ -19,8 +19,9 @@ quote = "1.0.35"
 rand = "0.8.5"
 syn = "2.0.48"
 num-traits = "0.2.17"
-meshx = { version = "0.6.1", features = ["io", "objio"] }
+meshx = { version = "0.6.1", features = ["io", "objio", "vtkio"] }
 ordered-float = "4.2.0"
+obj = "0.10.2"
 
 [build-dependencies]
 syn = "2.0.48"

@@ -22,7 +22,7 @@ fn headless_startup(
 ) {
     ew_adv.send(AdvanceMeshGenerationEvent::default());
 
-    for _ in 0..3 {
+    for _ in 0..2 {
         ew_adv.send(AdvanceMeshGenerationEvent::default());
     }
 

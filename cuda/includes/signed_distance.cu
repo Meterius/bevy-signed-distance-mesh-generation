@@ -233,7 +233,7 @@ __device__ vec3 closest_surface_point(const SFunc sd_func, const vec3 p) {
         float sd = sd_func(g);
         vec3 n = empirical_normal(sd_func, g);
         g -= sd * n;
-        collision = abs(sd) <= 0.001f;
+        collision = abs(sd) <= 0.00001f;
     }
 
     return g;

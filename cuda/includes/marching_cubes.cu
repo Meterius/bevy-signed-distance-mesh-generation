@@ -11,19 +11,19 @@ struct McCube {
 };
 
 __device__ vec3 edge_vertex(const McCube &cube, const int i0, const int i1) {
-    float v = cube.values[i0] / (cube.values[i0] - cube.values[i1]);
+    float v = 0.5f; // cube.values[i0] / (cube.values[i0] - cube.values[i1]);
     return mix(cube.vertices[i0], cube.vertices[i1], v);
 }
 
-__device__ void write_triangle(const McCube &cube, const int edge_indices[3], Point *const triangle) {
+__device__ void write_triangle(const McCube &cube, const int edge_indices[3], Vertex *const triangle) {
     for (int i = 0; i < 3; i++) {
-        triangle[i] = to_point(
+        triangle[i].position = to_point(
             edge_vertex(cube, MC_EDGE_TABLE[edge_indices[i]][0], MC_EDGE_TABLE[edge_indices[i]][1])
         );
     }
 }
 
-__device__ int march_cube(const McCube &cube, Point *const triangles) {
+__device__ int march_cube(const McCube &cube, Vertex *const triangles) {
     unsigned char cube_index = 0;
 
     for (int i = 0; i < 8; i++) {

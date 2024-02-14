@@ -4,7 +4,7 @@ __device__ float sd_scene(vec3 p) {
     float sd = MAX_POSITIVE_F32;
 
     sd = min(sd, sd_obj(p));
-    sd = min(sd, sd_box(p, vec3 { 0.0f, MESH_GENERATION_BB_MIN[1] - 0.5f, 0.0f }, vec3 { 10.0f, 1.0f, 10.0f }));
+    // sd = min(sd, sd_box(p, vec3 { 0.0f, MESH_GENERATION_BB_MIN[1] - 0.5f, 0.0f }, vec3 { 10.0f, 1.0f, 10.0f }));
     sd = min(
         sd,
         sd_box_skeleton(

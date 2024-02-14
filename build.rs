@@ -75,12 +75,7 @@ fn compile_cuda() {
     let mut path = std::env::var("PATH").unwrap();
     path.push_str(";C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64;");
 
-    for func in vec![
-        "compute_render",
-        "compute_mesh_generation"
-    ]
-    .into_iter()
-    {
+    for func in vec!["compute_render", "compute_mesh_generation"].into_iter() {
         let filename = format!("assets/cuda/compiled/{func}.ptx");
         let file = File::create(format!("logs/nvcc_{}.txt", filename.replace("/", "_"))).unwrap();
 
@@ -145,9 +140,7 @@ fn compile_cuda() {
     modified_bindings.push_str(
         add_derive_extensions_to_structs(
             bindings.to_string().as_str(),
-            &[
-                "Point"
-            ],
+            &["Point", "Vertex"],
             &["Default"],
         )
         .as_str(),

@@ -84,17 +84,25 @@ extern "C" __global__ void compute_mesh_block_projected_marching_cube_mesh(
         int tr_count = march_cube(cube, &tri_mesh.vertices[triangle_start]);
 
         for (int k = 0; k < tr_count; k++) {
-            vec3 v0 = from_point(tri_mesh.vertices[triangle_start + 3 * k]);
-            vec3 v1 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 1]);
-            vec3 v2 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 2]);
+            vec3 v0 = from_point(tri_mesh.vertices[triangle_start + 3 * k].position);
+            vec3 v1 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 1].position);
+            vec3 v2 = from_point(tri_mesh.vertices[triangle_start + 3 * k + 2].position);
 
-            vec3 triangle_normal = normalize(cross(v1 - v0, v2 - v0));
-            vec3 actual_normal = empirical_normal(sd_obj, (v0 + v1 + v2) / 3.0f);
+            v0 = closest_surface_point(sd_obj, v0);
+            v1 = closest_surface_point(sd_obj, v1);
+            v2 = closest_surface_point(sd_obj, v2);
 
-            if (dot(triangle_normal, actual_normal) <= 0.0f) {
-                tri_mesh.vertices[triangle_start + 3 * k] = to_point(v2);
-                tri_mesh.vertices[triangle_start + 3 * k + 2] = to_point(v0);
-            }
+            vec3 n0 = empirical_normal(sd_obj, v0);
+            vec3 n1 = empirical_normal(sd_obj, v1);
+            vec3 n2 = empirical_normal(sd_obj, v2);
+
+            const vec3 triangle_normal = normalize(cross(v1 - v0, v2 - v0));
+            const vec3 actual_normal = empirical_normal(sd_obj, (v0 + v1 + v2) / 3.0f);
+            const bool change_orientation = dot(triangle_normal, actual_normal) <= 0.0f;
+
+            tri_mesh.vertices[triangle_start + 3 * k] = { to_point(change_orientation ? v2 : v0), to_point(change_orientation ? n2 : n0) };
+            tri_mesh.vertices[triangle_start + 3 * k + 1] = { to_point(v1), to_point(n1) };
+            tri_mesh.vertices[triangle_start + 3 * k + 2] = { to_point(change_orientation ? v0 : v2), to_point(change_orientation ? n0 : n2) };
         }
 
         for (int i = 3 * tr_count; i < 3 * 5; i++) {

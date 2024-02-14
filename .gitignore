@@ -7,3 +7,4 @@ src/bindings/cuda.rs
 cuda/includes/libraries/glm/**/*
 logs
 generated_mesh.obj
+generated_mesh.vtk

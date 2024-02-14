@@ -428,6 +428,7 @@ dependencies = [
  "naga_oil 0.11.0",
  "num-traits",
  "nvtx",
+ "obj",
  "ordered-float 4.2.0",
  "proc-macro2",
  "quote",

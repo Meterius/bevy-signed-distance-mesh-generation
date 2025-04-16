@@ -27,7 +27,11 @@ pub fn receive_input(
     }
 
     if keyboard_input.just_pressed(KeyCode::N) {
-        render_settings.show_partition = !render_settings.show_partition;
+        render_settings.show_preview = !render_settings.show_preview;
+    }
+
+    if keyboard_input.just_pressed(KeyCode::K) {
+        render_settings.show_wireframe = !render_settings.show_wireframe;
     }
 
     if keyboard_input.just_pressed(KeyCode::B) {

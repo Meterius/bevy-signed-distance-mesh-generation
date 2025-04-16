@@ -103,9 +103,13 @@ extern "C" __global__ void compute_mesh_from_voxel_field_by_sdf(
             const vec3 actual_normal = empirical_normal(sd_obj, (v0 + v1 + v2) / 3.0f);
             const bool change_orientation = dot(triangle_normal, actual_normal) <= 0.0f;
 
-            tri_mesh.vertices[triangle_start + 3 * k] = { to_point(change_orientation ? v2 : v0), to_point(change_orientation ? n2 : n0) };
-            tri_mesh.vertices[triangle_start + 3 * k + 1] = { to_point(v1), to_point(n1) };
-            tri_mesh.vertices[triangle_start + 3 * k + 2] = { to_point(change_orientation ? v0 : v2), to_point(change_orientation ? n0 : n2) };
+            vec3 o_n0 = change_orientation ? n2 : n0;
+            vec3 o_n1 = n1;
+            vec3 o_n2 = change_orientation ? n0 : n2;
+
+            tri_mesh.vertices[triangle_start + 3 * k] = { to_point(change_orientation ? v2 : v0), to_point(o_n0) };
+            tri_mesh.vertices[triangle_start + 3 * k + 1] = { to_point(v1), to_point(o_n1) };
+            tri_mesh.vertices[triangle_start + 3 * k + 2] = { to_point(change_orientation ? v0 : v2), to_point(o_n2) };
         }
 
         for (int i = 3 * tr_count; i < 3 * 5; i++) {

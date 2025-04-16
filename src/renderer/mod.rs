@@ -2,6 +2,7 @@ use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::window::PrimaryWindow;
 use bevy::{prelude::*, render::render_resource::*};
+use bevy::pbr::wireframe::Wireframe;
 use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
 use obj::ObjData;
 use crate::cuda::{CudaHandler, CudaVoxelField};
@@ -21,7 +22,8 @@ pub struct RenderMeshTarget {}
 #[derive(Debug, Clone, Default, Resource, Reflect)]
 #[reflect(Resource)]
 pub struct RenderSettings {
-    pub show_partition: bool,
+    pub show_preview: bool,
+    pub show_wireframe: bool,
 }
 
 #[derive(Debug, Clone, Default, Component)]
@@ -201,20 +203,33 @@ fn setup_cuda(world: &mut World) {
 }
 
 fn render(
+    mut commands: Commands,
     time: Res<Time>,
     mut camera: Query<(&mut Camera, &Projection, &GlobalTransform), With<RenderCameraTarget>>,
-    mut relay_camera: Query<(&mut Camera), (With<RenderRelayCameraTarget>, Without<RenderCameraTarget>)>,
+    mut relay_camera: Query<&mut Camera, (With<RenderRelayCameraTarget>, Without<RenderCameraTarget>)>,
     mut render_context: NonSendMut<RenderCudaContext>,
     render_settings: Res<RenderSettings>,
     render_target_image: Res<RenderTargetImage>,
+    mut render_mesh_target: Query<Entity, With<RenderMeshTarget>>,
     mut images: ResMut<Assets<Image>>,
     mut tick: Local<u64>,
 ) {
     let (mut cam, cam_projection, cam_transform) = camera.single_mut();
-    let (mut relay_cam) = relay_camera.single_mut();
+    let mut relay_cam = relay_camera.single_mut();
 
-    relay_cam.is_active = !render_settings.show_partition;
-    cam.is_active = render_settings.show_partition;
+    relay_cam.is_active = !render_settings.show_preview;
+    cam.is_active = render_settings.show_preview;
+
+    let render_mesh_target = render_mesh_target.single();
+    if render_settings.show_wireframe {
+        commands
+            .entity(render_mesh_target)
+            .insert(Wireframe::default());
+    } else {
+        commands
+            .entity(render_mesh_target)
+            .remove::<Wireframe>();
+    }
 
     if relay_cam.is_active {
         let globals = crate::bindings::cuda::GlobalsBuffer {

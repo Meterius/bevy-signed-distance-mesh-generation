@@ -2,8 +2,9 @@ use crate::example_scene::ExampleScenePlugin;
 use crate::renderer::{AdvanceMeshGenerationEvent, FinalizeMeshGenerationEvent};
 use bevy::app::AppExit;
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
-use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use bevy::render::settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings};
 use bevy::render::RenderPlugin;
 use bevy::window::{CursorGrabMode, PresentMode, PrimaryWindow, WindowResolution};
 use bevy_editor_pls::EditorPlugin;
@@ -37,31 +38,38 @@ fn main() {
 
     let mut app = App::new();
 
-    app.insert_resource(Msaa::Sample8).add_plugins((
-        DefaultPlugins
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    position: WindowPosition::Centered(MonitorSelection::Index(0)),
-                    present_mode: PresentMode::AutoVsync,
-                    resolution: WindowResolution::new(1920., 1080.),
+    app
+        .insert_resource(Msaa::Sample8)
+        .insert_resource(WireframeConfig {
+            global: false,
+            default_color: Color::RED,
+        })
+        .add_plugins((
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        position: WindowPosition::Centered(MonitorSelection::Index(0)),
+                        present_mode: PresentMode::AutoVsync,
+                        resolution: WindowResolution::new(1920., 1080.),
+                        ..default()
+                    }),
                     ..default()
+                })
+                .set(RenderPlugin {
+                    render_creation: RenderCreation::Automatic(WgpuSettings {
+                        features: WgpuFeatures::POLYGON_MODE_LINE | WgpuFeatures::POLYGON_MODE_POINT,
+                        backends: Some(Backends::VULKAN),
+                        ..default()
+                    }),
                 }),
-                ..default()
-            })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
-                    backends: Some(Backends::VULKAN),
-                    ..default()
-                }),
-            }),
-        ObjPlugin,
-        FrameTimeDiagnosticsPlugin::default(),
-        EntityCountDiagnosticsPlugin::default(),
-        EditorPlugin::default(),
-        renderer::RayMarcherRenderPlugin::default(),
-        NoCameraPlayerPlugin,
-        ExampleScenePlugin::default(),
-    ));
+            ObjPlugin,
+            FrameTimeDiagnosticsPlugin::default(),
+            EntityCountDiagnosticsPlugin::default(),
+            EditorPlugin::default(),
+            renderer::RayMarcherRenderPlugin::default(),
+            NoCameraPlayerPlugin,
+            ExampleScenePlugin::default(),
+        ));
 
     app.add_systems(
         PostStartup,

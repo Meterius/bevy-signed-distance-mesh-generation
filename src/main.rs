@@ -14,6 +14,7 @@ pub mod bindings;
 pub mod example_scene;
 pub mod input_handling;
 pub mod renderer;
+mod cuda;
 
 fn headless_startup(
     mut ew_adv: EventWriter<AdvanceMeshGenerationEvent>,

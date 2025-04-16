@@ -1,7 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::fs::File;
 use syn::{parse_file, Attribute, Item, Meta};
+use std::fs::{read_dir, File, create_dir_all};
+use std::path::Path;
+
+const MSVC_PATH: &'static str = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC";
 
 // Utility
 
@@ -66,6 +69,19 @@ macro_rules! warn {
     }
 }
 
+fn find_msvc_path() -> String {
+    let msvc_path = Path::new(MSVC_PATH);
+    let msvc_dir = read_dir(msvc_path).expect("Failed to find/read MSVC 2022 directory");
+
+    let version = msvc_dir.into_iter().flatten()
+        .next().expect("Failed to find MSVC tool").file_name();
+
+    let msvc_tool_dir = msvc_path.join(version).join("bin\\Hostx64\\x64");
+    read_dir(msvc_tool_dir.as_path()).expect("Failed to find/read MSVC tool directory");
+
+    return String::from(msvc_tool_dir.to_str().unwrap());
+}
+
 fn compile_cuda() {
     // Tell cargo to invalidate the built crate whenever fils of interest changes.
     println!("cargo:rerun-if-changed={}", "cuda");
@@ -73,7 +89,9 @@ fn compile_cuda() {
     // build the cuda modules
 
     let mut path = std::env::var("PATH").unwrap();
-    path.push_str(";C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.38.33130\\bin\\Hostx64\\x64;");
+    path.push_str(format!(";{};", find_msvc_path()).as_str());
+
+    create_dir_all("logs".to_string()).unwrap();
 
     for func in vec!["compute_render", "compute_mesh_generation"].into_iter() {
         let filename = format!("assets/cuda/compiled/{func}.ptx");

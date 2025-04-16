@@ -8,9 +8,6 @@ use cudarc::driver::{
 };
 use cudarc::nvrtc::Ptx;
 use itertools::Itertools;
-use meshx::attrib::Attrib;
-use meshx::topology::VertexIndex;
-use ordered_float::OrderedFloat;
 use std::collections::HashMap;
 use std::sync::Arc;
 

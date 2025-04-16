@@ -83,8 +83,8 @@ fn find_msvc_path() -> String {
 }
 
 fn compile_cuda() {
-    // Tell cargo to invalidate the built crate whenever fils of interest changes.
-    println!("cargo:rerun-if-changed={}", "cuda");
+    // Tell cargo to invalidate the built crate whenever files of interest changes.
+    println!("cargo::rerun-if-changed={}", "cuda");
 
     // build the cuda modules
 
@@ -92,6 +92,7 @@ fn compile_cuda() {
     path.push_str(format!(";{};", find_msvc_path()).as_str());
 
     create_dir_all("logs".to_string()).unwrap();
+    create_dir_all("assets/cuda/compiled".to_string()).unwrap();
 
     for func in vec!["compute_render", "compute_mesh_generation"].into_iter() {
         let filename = format!("assets/cuda/compiled/{func}.ptx");
@@ -118,8 +119,6 @@ fn compile_cuda() {
             nvcc_cmd.arg("-Xptxas=\"-o=3\"");
             nvcc_cmd.arg("-Xptxas=\"-warn-double-usage\"");
         }
-
-        println!("{nvcc_cmd:?}");
 
         let nvcc_status = nvcc_cmd
             .arg(format!("-arch={}", "compute_86"))

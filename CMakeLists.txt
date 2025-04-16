@@ -8,17 +8,8 @@ include_directories(cuda/kernels)
 
 add_executable(
     bevy_signed_distance_mesh_generation
-    cuda/includes/signed_distance.cu
-    cuda/includes/ray_marching.cu
     cuda/modules/compute_render.cu
-    cuda/includes/types.cu
-        cuda/includes/utils.cu
-        cuda/includes/color.cu
-        cuda/modules/compute_mesh_generation.cu
-        cuda/includes/bindings.h
-        cuda/modules/common.cu
-        cuda/includes/marching_cubes_constants.cu
-        cuda/includes/marching_cubes.cu
+    cuda/modules/compute_mesh_generation.cu
 )
 
 set_target_properties(bevy_signed_distance_mesh_generation PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

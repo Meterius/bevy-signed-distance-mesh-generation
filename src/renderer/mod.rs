@@ -4,6 +4,8 @@ use bevy::window::PrimaryWindow;
 use bevy::{prelude::*, render::render_resource::*};
 use crate::cuda::{CudaHandler, CudaMeshGenState};
 
+const RENDER_IMAGE_SIZE: (usize, usize) = (2560, 1440);
+
 #[derive(Debug, Clone, Default, Event)]
 pub struct AdvanceMeshGenerationEvent {}
 
@@ -42,8 +44,8 @@ struct RenderCudaMeshGenState {
 fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut image = Image::new_fill(
         Extent3d {
-            width: crate::cuda::RENDER_TEXTURE_SIZE.0 as u32,
-            height: crate::cuda::RENDER_TEXTURE_SIZE.1 as u32,
+            width: RENDER_IMAGE_SIZE.0 as u32,
+            height: RENDER_IMAGE_SIZE.1 as u32,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -59,8 +61,8 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
             sprite: Sprite {
                 color: Color::rgba(1.0, 1.0, 1.0, 1.0),
                 custom_size: Some(Vec2::new(
-                    crate::cuda::RENDER_TEXTURE_SIZE.0 as f32,
-                    crate::cuda::RENDER_TEXTURE_SIZE.1 as f32,
+                    RENDER_IMAGE_SIZE.0 as f32,
+                    RENDER_IMAGE_SIZE.1 as f32,
                 )),
                 ..default()
             },
@@ -141,7 +143,7 @@ fn render(
     let globals = crate::bindings::cuda::GlobalsBuffer {
         time: time.elapsed_seconds(),
         tick: tick.clone(),
-        render_texture_size: [crate::cuda::RENDER_TEXTURE_SIZE.0 as u32, crate::cuda::RENDER_TEXTURE_SIZE.1 as u32],
+        render_texture_size: [RENDER_IMAGE_SIZE.0 as u32, RENDER_IMAGE_SIZE.1 as u32],
         render_screen_size: [
             cam.logical_viewport_size().map(|s| s.x).unwrap_or(1.0) as _,
             cam.logical_viewport_size().map(|s| s.y).unwrap_or(1.0) as _,
@@ -177,8 +179,8 @@ fn synchronize_target_sprite(
     window: Query<&Window, With<PrimaryWindow>>,
 ) {
     sprite.single_mut().scale = Vec2::new(
-        window.single().width() / (crate::cuda::RENDER_TEXTURE_SIZE.0 as f32),
-        window.single().height() / (crate::cuda::RENDER_TEXTURE_SIZE.1 as f32),
+        window.single().width() / (RENDER_IMAGE_SIZE.0 as f32),
+        window.single().height() / (RENDER_IMAGE_SIZE.1 as f32),
     )
     .extend(1.0);
 }

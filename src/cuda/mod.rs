@@ -2,31 +2,42 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use bevy::log::{error, info};
-use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, DevicePtr, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, DevicePtr, DeviceRepr, DeviceSlice, LaunchAsync, LaunchConfig};
+use cudarc::driver::sys::CUdeviceptr;
 use cudarc::nvrtc::Ptx;
 use itertools::Itertools;
 use crate::bindings::cuda::BLOCK_SIZE;
 
-pub const RENDER_TEXTURE_SIZE: (usize, usize) = (2560, 1440);
-
-const MESH_GENERATION_POINT_BUFFER_SIZE: usize = 8 * 1048576;
-const MESH_GENERATION_TRIANGLE_BUFFER_SIZE: usize = MESH_GENERATION_POINT_BUFFER_SIZE * 5;
 const MESH_GENERATION_OUTPUT_FILEPATH: &'static str = "generated_mesh.obj";
+
+struct DynamicCudaSlice<T> {
+    device: Arc<CudaDevice>,
+    data: Option<CudaSlice<T>>,
+}
+
+impl<T: DeviceRepr> DynamicCudaSlice<T> {
+    unsafe fn get_or_alloc_sync(&mut self, length: usize) -> CUdeviceptr {
+        if self.data.as_ref().is_none_or(|data| data.len() < length) {
+            self.data = Some(self.device.alloc(length).unwrap());
+        }
+
+        return std::mem::transmute(*(&self.data.as_ref().unwrap()).device_ptr());
+    }
+}
 
 pub struct CudaHandler {
     device: Arc<CudaDevice>,
 
     func_compute_render: CudaFunction,
+
     func_compute_mesh_block_generation: CudaFunction,
     func_compute_mesh_block_projected_marching_cube_mesh: CudaFunction,
 
-    render_texture_buffer: CudaSlice<crate::bindings::cuda::Rgba>,
-    mesh_gen_triangle_buffer: CudaSlice<crate::bindings::cuda::Vertex>,
-    mesh_gen_point_buffers: (
-        CudaSlice<crate::bindings::cuda::Point>,
-        CudaSlice<crate::bindings::cuda::Point>,
-    ),
-    
+    render_texture_buffer: DynamicCudaSlice<crate::bindings::cuda::Rgba>,
+    mesh_gen_triangle_buffer: DynamicCudaSlice<crate::bindings::cuda::Vertex>,
+    mesh_gen_point_input_buffer: DynamicCudaSlice<crate::bindings::cuda::Point>,
+    mesh_gen_point_output_buffer: DynamicCudaSlice<crate::bindings::cuda::Point>,
+
     _marker: PhantomData<bool>
 }
 
@@ -84,32 +95,14 @@ impl CudaHandler {
 
         info!("CUDA PTX Loading took {:.2?} seconds", start.elapsed());
 
-        let render_texture_buffer = unsafe {
-            device
-                .alloc::<crate::bindings::cuda::Rgba>(RENDER_TEXTURE_SIZE.0 * RENDER_TEXTURE_SIZE.1)
-                .unwrap()
-        };
-
-        let mesh_gen_point_buffers = unsafe {
-            (
-                device
-                    .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_POINT_BUFFER_SIZE)
-                    .unwrap(),
-                device
-                    .alloc::<crate::bindings::cuda::Point>(MESH_GENERATION_POINT_BUFFER_SIZE)
-                    .unwrap(),
-            )
-        };
-
-        let mesh_gen_triangle_buffer = unsafe {
-            device
-                .alloc::<crate::bindings::cuda::Vertex>(MESH_GENERATION_TRIANGLE_BUFFER_SIZE * 3)
-                .unwrap()
-        };
+        let render_texture_buffer = DynamicCudaSlice { device: device.clone(), data: None };
+        let mesh_gen_point_input_buffer = DynamicCudaSlice { device: device.clone(), data: None };
+        let mesh_gen_point_output_buffer = DynamicCudaSlice { device: device.clone(), data: None };
+        let mesh_gen_triangle_buffer = DynamicCudaSlice { device: device.clone(), data: None };
 
         return Self {
             device, func_compute_mesh_block_projected_marching_cube_mesh, func_compute_render, func_compute_mesh_block_generation,
-            mesh_gen_point_buffers, mesh_gen_triangle_buffer, render_texture_buffer, _marker: PhantomData {}, 
+            mesh_gen_point_output_buffer, mesh_gen_point_input_buffer, mesh_gen_triangle_buffer, render_texture_buffer, _marker: PhantomData {},
         }
     }
 
@@ -130,7 +123,7 @@ impl CudaHandler {
         };
 
         if !mesh_gen_state.initialized {
-            mesh_gen_state.partition_factor = (MESH_GENERATION_POINT_BUFFER_SIZE as f32)
+            mesh_gen_state.partition_factor = (8.0f32 * 1048576.0f32)
                 .powf(1.0 / 3.0)
                 .floor() as _;
         }
@@ -147,18 +140,13 @@ impl CudaHandler {
             curr_point_count, worst_case_next_point_count
         );
 
-        if worst_case_next_point_count > MESH_GENERATION_POINT_BUFFER_SIZE {
-            error!(
-            "Advancing block border partitions may require {worst_case_next_point_count} points, \
-           as we currently have {curr_point_count} points but buffer can only store {MESH_GENERATION_POINT_BUFFER_SIZE}"
-        );
-            return;
-        }
-
         if curr_point_count != 0 {
+            let mesh_gen_point_input_buffer_ptr = unsafe { self.mesh_gen_point_input_buffer.get_or_alloc_sync(mesh_gen_state.partition_points.len()) };
+            let mesh_gen_point_output_buffer_ptr = unsafe { self.mesh_gen_point_output_buffer.get_or_alloc_sync(worst_case_next_point_count) };
+
             unsafe {
                 cudarc::driver::result::memcpy_htod_sync(
-                    *self.mesh_gen_point_buffers.0.device_ptr(),
+                    mesh_gen_point_input_buffer_ptr,
                     mesh_gen_state.partition_points.as_slice(),
                 )
                     .unwrap()
@@ -180,16 +168,12 @@ impl CudaHandler {
                         },
                         (
                             crate::bindings::cuda::BlockPartition {
-                                bases: std::mem::transmute(
-                                    *(&self.mesh_gen_point_buffers.0).device_ptr(),
-                                ),
+                                bases: std::mem::transmute(mesh_gen_point_input_buffer_ptr),
                                 base_length: curr_point_count as _,
                                 factor: mesh_gen_state.partition_factor as _,
                             },
                             crate::bindings::cuda::BlockPartition {
-                                bases: std::mem::transmute(
-                                    *(&self.mesh_gen_point_buffers.1).device_ptr(),
-                                ),
+                                bases: std::mem::transmute(mesh_gen_point_output_buffer_ptr),
                                 base_length: worst_case_next_point_count as _,
                                 factor: (mesh_gen_state.partition_factor
                                     * block_factor_increase)
@@ -209,7 +193,7 @@ impl CudaHandler {
             unsafe {
                 cudarc::driver::result::memcpy_dtoh_sync(
                     mesh_gen_state.partition_points.as_mut_slice(),
-                    *self.mesh_gen_point_buffers.1.device_ptr(),
+                    mesh_gen_point_output_buffer_ptr
                 )
                     .unwrap()
             };
@@ -241,14 +225,8 @@ impl CudaHandler {
             error!("Cannot finalize mesh as mesh generation has not been initialized yet.");
         }
 
-        if worst_case_triangle_count > MESH_GENERATION_TRIANGLE_BUFFER_SIZE {
-            error!(
-            "Finalizing mesh generation may require {worst_case_triangle_count} triangles, \
-           as we currently have {} points but buffer can only store {MESH_GENERATION_TRIANGLE_BUFFER_SIZE}",
-            mesh_gen_state.partition_points.len()
-        );
-            return;
-        }
+        let mesh_gen_point_input_buffer_ptr = unsafe { self.mesh_gen_point_input_buffer.get_or_alloc_sync(mesh_gen_state.partition_points.len()) };
+        let mesh_gen_triangle_buffer_ptr = unsafe { self.mesh_gen_triangle_buffer.get_or_alloc_sync(3 * worst_case_triangle_count) };
 
         if mesh_gen_state.partition_points.len() != 0 {
             unsafe {
@@ -269,16 +247,12 @@ impl CudaHandler {
                         },
                         (
                             crate::bindings::cuda::BlockPartition {
-                                bases: std::mem::transmute(
-                                    *(&self.mesh_gen_point_buffers.0).device_ptr(),
-                                ),
+                                bases: std::mem::transmute(mesh_gen_point_input_buffer_ptr),
                                 base_length: mesh_gen_state.partition_points.len() as _,
                                 factor: mesh_gen_state.partition_factor as _,
                             },
                             crate::bindings::cuda::NaiveTriMesh {
-                                vertices: std::mem::transmute(
-                                    *(&self.mesh_gen_triangle_buffer).device_ptr(),
-                                ),
+                                vertices: std::mem::transmute(mesh_gen_triangle_buffer_ptr),
                             },
                         ),
                     )
@@ -294,7 +268,7 @@ impl CudaHandler {
             unsafe {
                 cudarc::driver::result::memcpy_dtoh_sync(
                     raw_triangles.as_mut_slice(),
-                    *self.mesh_gen_triangle_buffer.device_ptr(),
+                    mesh_gen_triangle_buffer_ptr,
                 )
                     .unwrap()
             };
@@ -381,9 +355,25 @@ impl CudaHandler {
     ) {
         let range_id = nvtx::range_start!("Render System Wait For Previous Frame");
 
+        let render_width = globals.render_texture_size[0] as usize;
+        let render_height = globals.render_texture_size[1] as usize;
+        let render_buffer_size = 4 * render_width * render_height;
+
+        let mesh_gen_point_buffer_ptr = unsafe {
+            self.mesh_gen_point_input_buffer.get_or_alloc_sync(mesh_gen_state.partition_points.len())
+        };
+
+        if target_image.len() != render_buffer_size {
+            error!("Target image has size {render_buffer_size}, but should have size {render_buffer_size}.");
+        }
+
+        let render_texture_buffer_ptr = unsafe {
+            self.render_texture_buffer.get_or_alloc_sync(render_buffer_size)
+        };
+
         unsafe {
             cudarc::driver::result::memcpy_htod_sync(
-                *self.mesh_gen_point_buffers.0.device_ptr(),
+                mesh_gen_point_buffer_ptr,
                 mesh_gen_state.partition_points.as_slice(),
             )
                 .unwrap()
@@ -394,16 +384,14 @@ impl CudaHandler {
         let range_id = nvtx::range_start!("Render System Invoke");
 
         let partition = crate::bindings::cuda::BlockPartition {
-            bases: unsafe {
-                std::mem::transmute(*(&self.mesh_gen_point_buffers.0).device_ptr())
-            },
+            bases: unsafe { std::mem::transmute(mesh_gen_point_buffer_ptr) },
             base_length: mesh_gen_state.partition_points.len() as _,
             factor: mesh_gen_state.partition_factor as _,
         };
 
         let render_texture = crate::bindings::cuda::RenderTexture {
-            data: unsafe { std::mem::transmute(*(&self.render_texture_buffer).device_ptr()) },
-            size: [RENDER_TEXTURE_SIZE.0 as _, RENDER_TEXTURE_SIZE.1 as _],
+            data: unsafe { std::mem::transmute(render_texture_buffer_ptr) },
+            size: [globals.render_texture_size[0] as _, globals.render_texture_size[1] as _],
         };
 
         unsafe {
@@ -414,7 +402,7 @@ impl CudaHandler {
                     LaunchConfig {
                         block_dim: (crate::bindings::cuda::BLOCK_SIZE as usize as u32, 1, 1),
                         grid_dim: (
-                            (RENDER_TEXTURE_SIZE.1 as u32 * RENDER_TEXTURE_SIZE.0 as u32)
+                            (render_width * render_height) as u32
                                 / (crate::bindings::cuda::BLOCK_SIZE as usize as u32),
                             1,
                             1,
@@ -434,7 +422,7 @@ impl CudaHandler {
         unsafe {
             cudarc::driver::result::memcpy_dtoh_sync(
                 target_image,
-                *self.render_texture_buffer.device_ptr(),
+                render_texture_buffer_ptr,
             ).unwrap()
         };
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use bevy::log::{error, info};
-use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, CudaStream, DevicePtr, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, DevicePtr, LaunchAsync, LaunchConfig};
 use cudarc::nvrtc::Ptx;
 use itertools::Itertools;
 use crate::bindings::cuda::BLOCK_SIZE;
@@ -27,8 +27,6 @@ pub struct CudaHandler {
         CudaSlice<crate::bindings::cuda::Point>,
     ),
     
-    render_stream: CudaStream,
-
     _marker: PhantomData<bool>
 }
 
@@ -109,11 +107,9 @@ impl CudaHandler {
                 .unwrap()
         };
 
-        let render_stream = device.fork_default_stream().unwrap();
-
         return Self {
             device, func_compute_mesh_block_projected_marching_cube_mesh, func_compute_render, func_compute_mesh_block_generation,
-            mesh_gen_point_buffers, mesh_gen_triangle_buffer, render_texture_buffer, render_stream, _marker: PhantomData {}, 
+            mesh_gen_point_buffers, mesh_gen_triangle_buffer, render_texture_buffer, _marker: PhantomData {}, 
         }
     }
 
@@ -378,7 +374,6 @@ impl CudaHandler {
 
     pub fn render(
         &mut self,
-        first_render_to_target: bool,
         target_image: &mut [u8],
         mesh_gen_state: &mut CudaMeshGenState,
         globals: crate::bindings::cuda::GlobalsBuffer,
@@ -386,28 +381,12 @@ impl CudaHandler {
     ) {
         let range_id = nvtx::range_start!("Render System Wait For Previous Frame");
 
-        if first_render_to_target {
-            unsafe {
-                cudarc::driver::sys::cuMemHostRegister_v2(
-                    target_image.as_mut_ptr() as *mut _,
-                    target_image.len(),
-                    0,
-                )
-                    .result()
-                    .unwrap()
-            };
-        }
-
         unsafe {
             cudarc::driver::result::memcpy_htod_sync(
                 *self.mesh_gen_point_buffers.0.device_ptr(),
                 mesh_gen_state.partition_points.as_slice(),
             )
                 .unwrap()
-        };
-
-        unsafe {
-            cudarc::driver::result::stream::synchronize(self.render_stream.stream).unwrap()
         };
 
         nvtx::range_end!(range_id);
@@ -431,8 +410,7 @@ impl CudaHandler {
             self
                 .func_compute_render
                 .clone()
-                .launch_on_stream(
-                    &self.render_stream,
+                .launch(
                     LaunchConfig {
                         block_dim: (crate::bindings::cuda::BLOCK_SIZE as usize as u32, 1, 1),
                         grid_dim: (
@@ -454,12 +432,10 @@ impl CudaHandler {
         };
 
         unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(
+            cudarc::driver::result::memcpy_dtoh_sync(
                 target_image,
                 *self.render_texture_buffer.device_ptr(),
-                self.render_stream.stream,
-            )
-                .unwrap()
+            ).unwrap()
         };
 
         nvtx::range_end!(range_id);

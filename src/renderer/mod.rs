@@ -161,7 +161,6 @@ fn render(
     };
 
     render_context.handler.render(
-        *tick == 0,
         &mut images.get_mut(&render_target_image.0).unwrap().data,
         &mut render_mesh_gen_state.state,
         globals,

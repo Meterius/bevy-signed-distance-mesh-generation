@@ -21,8 +21,7 @@ __device__ float sd_scene(vec3 p) {
 extern "C" __global__ void compute_render(
     const RenderTexture render_texture,
     const GlobalsBuffer globals,
-    const CameraBuffer camera,
-    const BlockPartition partition
+    const CameraBuffer camera
 ) {
     // calculate ray
 
@@ -60,28 +59,7 @@ extern "C" __global__ void compute_render(
     );
 
     auto sd_scene_with_partition = [&](vec3 p) {
-        float sd = sd_scene(p);
-
-        if (globals.show_partition) {
-            vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
-
-            for (int i = 0; i < partition.base_length; i++) {
-                /*for (int c1 = 0; c1 <= 1; c1++) {
-                    for (int c2 = 0; c2 <= 1; c2++) {
-                        for (int c3 = 0; c3 <= 1; c3++) {
-                            vec3 q = from_point(partition.bases[i]);
-                            q.x += c1 ? block_size.x : 0.0f;
-                            q.y += c2 ? block_size.y : 0.0f;
-                            q.z += c3 ? block_size.z : 0.0f;
-                            sd = min(sd, length(p - q) - 0.01f);
-                        }
-                    }
-                }*/
-                sd = min(sd, sd_box(p, from_point(partition.bases[i]) + block_size / 2.0f, block_size));
-            }
-        }
-
-        return sd;
+        return sd_scene(p);
     };
 
     RayMarchHit hit = ray_march(sd_scene_with_partition, ray, cone_radius_at_unit);

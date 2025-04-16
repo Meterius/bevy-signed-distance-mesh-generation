@@ -1,6 +1,7 @@
-#include "./common.cu"
 #include "../includes/marching_cubes.cu"
+#include "./common.cu"
 
+#include <algorithm>
 #include <assert.h>
 #include <stdio.h>
 
@@ -8,30 +9,29 @@ __device__ bool obj_contains(const vec3 p) {
     return sd_obj(p) <= 0.0f;
 }
 
-extern "C" __global__ void compute_mesh_block_generation(
-    BlockPartition prev_partition,
-    BlockPartition partition,
-    bool is_initial
+extern "C" __global__ void compute_refine_voxel_field_by_sdf(
+    const VoxelField input_field,
+    VoxelField output_field
 ) {
-    const int increase_fac = is_initial ? 1 : partition.factor / prev_partition.factor;
+    const int increase_fac = 2;
     const int increase_fac2 = increase_fac * increase_fac;
     const int increase_fac3 = increase_fac2 * increase_fac;
 
-    const vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
+    const vec3 output_voxel_size = from_point(input_field.voxel_size) / (float) increase_fac;
     const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (id < partition.base_length) {
-        const vec3 base = is_initial ? MESH_GENERATION_BB_MIN + block_size * vec3(
-            (float) (id / (partition.factor * partition.factor)),
-            fmod((float) (id / partition.factor), (float) partition.factor),
-            fmod((float) id, (float) partition.factor)
-        ) : from_point(prev_partition.bases[id]);
+    if (id == 0) {
+        output_field.voxel_size = to_point(output_voxel_size);
+    }
+
+    if (id < input_field.voxel_count) {
+        const vec3 base = from_point(input_field.voxels[id]);
 
         for (int i = 0; i < increase_fac; i++) {
             for (int j = 0; j < increase_fac; j++) {
                 for (int k = 0; k < increase_fac; k++) {
-                    vec3 lower = base + vec3 { i, j, k } * block_size;
-                    vec3 upper = base + vec3 { i + 1, j + 1, k + 1 } * block_size;
+                    vec3 lower = base + vec3 { i, j, k } * output_voxel_size;
+                    vec3 upper = base + vec3 { i + 1, j + 1, k + 1 } * output_voxel_size;
 
                     bool is_border = false;
                     bool prev = obj_contains(lower);
@@ -49,33 +49,36 @@ extern "C" __global__ void compute_mesh_block_generation(
                     }
 
                     const unsigned int n_id = id * increase_fac3 + i * increase_fac2 + j * increase_fac + k;
-                    partition.bases[n_id] = {
-                        is_border ? lower.x : INFINITY, is_border ? lower.y : INFINITY, is_border ? lower.z : INFINITY
-                    };
+
+                    if (n_id < output_field.voxel_count) {
+                        output_field.voxels[n_id] = {
+                            is_border ? lower.x : INFINITY, is_border ? lower.y : INFINITY, is_border ? lower.z : INFINITY
+                        };
+                    }
                 }
             }
         }
     }
 }
 
-extern "C" __global__ void compute_mesh_block_projected_marching_cube_mesh(
-    BlockPartition partition,
+extern "C" __global__ void compute_mesh_from_voxel_field_by_sdf(
+    VoxelField field,
     NaiveTriMesh tri_mesh
 ) {
-    const vec3 block_size = (MESH_GENERATION_BB_MAX - MESH_GENERATION_BB_MIN) / (float) partition.factor;
+    const vec3 voxel_size = from_point(field.voxel_size);
     const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
 
     const unsigned int triangle_start = 3 * 5 * id;
 
-    if (id < partition.base_length) {
-        const vec3 base = from_point(partition.bases[id]);
+    if (id < field.voxel_count) {
+        const vec3 base = from_point(field.voxels[id]);
 
         McCube cube;
         for (int c = 0; c < 8; c++) {
             vec3 v = base;
-            v[0] += (c % 4) == 1 || (c % 4) == 2 ? block_size[0] : 0.0f;
-            v[1] += (c % 4) >= 2 ? block_size[1] : 0.0f;
-            v[2] += c >= 4 ? block_size[2] : 0.0f;
+            v[0] += (c % 4) == 1 || (c % 4) == 2 ? voxel_size.x : 0.0f;
+            v[1] += (c % 4) >= 2 ? voxel_size.y : 0.0f;
+            v[2] += c >= 4 ? voxel_size.z : 0.0f;
 
             cube.vertices[c] = v;
             cube.values[c] = sd_obj(v);

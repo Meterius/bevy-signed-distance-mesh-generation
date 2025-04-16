@@ -18,7 +18,6 @@ struct GlobalsBuffer {
     float time;
     unsigned int render_texture_size[2];
     float render_screen_size[2];
-    bool show_partition;
 };
 
 struct CameraBuffer {
@@ -47,10 +46,10 @@ struct Point {
     float z;
 };
 
-struct BlockPartition {
-    struct Point* bases;
-    int base_length;
-    int factor;
+struct VoxelField {
+    struct Point voxel_size;
+    struct Point* voxels;
+    unsigned int voxel_count;
 };
 
 struct Vertex {

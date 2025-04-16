@@ -2,9 +2,10 @@ use bevy::core_pipeline::clear_color::ClearColorConfig;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::window::PrimaryWindow;
 use bevy::{prelude::*, render::render_resource::*};
-use crate::cuda::{CudaHandler, CudaMeshGenState};
+use crate::cuda::{CudaHandler, CudaVoxelField};
 
 const RENDER_IMAGE_SIZE: (usize, usize) = (2560, 1440);
+const MESH_GENERATION_OUTPUT_FILEPATH: &'static str = "generated_mesh.obj";
 
 #[derive(Debug, Clone, Default, Event)]
 pub struct AdvanceMeshGenerationEvent {}
@@ -35,8 +36,8 @@ struct RenderCudaContext {
 }
 
 #[derive(Resource)]
-struct RenderCudaMeshGenState {
-    pub state: CudaMeshGenState,
+struct RenderCudaVoxelField {
+    pub field: CudaVoxelField,
 }
 
 // App Systems
@@ -94,28 +95,30 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
 fn advance_mesh_generation(
     mut ev: EventReader<AdvanceMeshGenerationEvent>,
     mut render_context: NonSendMut<RenderCudaContext>,
-    mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
+    mut render_voxel_field: ResMut<RenderCudaVoxelField>,
 ) {
     if ev.is_empty() {
         return;
     }
 
     for _ in ev.read() {
-        render_context.handler.advance_mesh_generation(&mut render_mesh_gen_state.state)
+        render_context.handler.refine_voxel_field(&mut render_voxel_field.field)
     }
 }
 
 fn finalize_mesh_generation(
     mut ev: EventReader<FinalizeMeshGenerationEvent>,
     mut render_context: NonSendMut<RenderCudaContext>,
-    mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
+    mut render_voxel_field: ResMut<RenderCudaVoxelField>,
 ) {
     if ev.is_empty() {
         return;
     }
 
     for _ in ev.read() {
-        render_context.handler.finalize_mesh_generation(&mut render_mesh_gen_state.state);
+        let obj = render_context.handler.voxel_field_to_mesh(&mut render_voxel_field.field);
+        obj.save(MESH_GENERATION_OUTPUT_FILEPATH).unwrap();
+        info!("Stored generated mesh at {MESH_GENERATION_OUTPUT_FILEPATH};");
     }
 }
 
@@ -123,9 +126,9 @@ fn finalize_mesh_generation(
 
 fn setup_cuda(world: &mut World) {
     let handler = CudaHandler::new();
-    let state = CudaHandler::create_mesh_gen_state();
+    let field = CudaHandler::create_cuda_voxel_field();
     world.insert_non_send_resource(RenderCudaContext { handler });
-    world.insert_resource(RenderCudaMeshGenState { state });
+    world.insert_resource(RenderCudaVoxelField { field });
 }
 
 fn render(
@@ -133,8 +136,6 @@ fn render(
     camera: Query<(&Camera, &Projection, &GlobalTransform), With<RenderCameraTarget>>,
     mut render_context: NonSendMut<RenderCudaContext>,
     render_target_image: Res<RenderTargetImage>,
-    render_settings: Res<RenderSettings>,
-    mut render_mesh_gen_state: ResMut<RenderCudaMeshGenState>,
     mut images: ResMut<Assets<Image>>,
     mut tick: Local<u64>,
 ) {
@@ -148,7 +149,6 @@ fn render(
             cam.logical_viewport_size().map(|s| s.x).unwrap_or(1.0) as _,
             cam.logical_viewport_size().map(|s| s.y).unwrap_or(1.0) as _,
         ],
-        show_partition: render_settings.show_partition,
     };
 
     let camera = crate::bindings::cuda::CameraBuffer {
@@ -164,7 +164,6 @@ fn render(
 
     render_context.handler.render(
         &mut images.get_mut(&render_target_image.0).unwrap().data,
-        &mut render_mesh_gen_state.state,
         globals,
         camera,
     );

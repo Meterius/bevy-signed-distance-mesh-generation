@@ -1,5 +1,5 @@
 use crate::example_scene::ExampleSceneSettings;
-use crate::renderer::{AdvanceMeshGenerationEvent, FinalizeMeshGenerationEvent, RenderSettings};
+use crate::renderer::{MeshGenRefineEvent, MeshGenAdvanceEvent, RenderSettings};
 use bevy::{app::AppExit, prelude::*};
 use bevy_flycam::MovementSettings;
 
@@ -8,8 +8,8 @@ pub fn receive_input(
     mut e_scene_settings: ResMut<ExampleSceneSettings>,
     mut render_settings: ResMut<RenderSettings>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut adv_ew: EventWriter<AdvanceMeshGenerationEvent>,
-    mut fin_ew: EventWriter<FinalizeMeshGenerationEvent>,
+    mut adv_ew: EventWriter<MeshGenRefineEvent>,
+    mut fin_ew: EventWriter<MeshGenAdvanceEvent>,
     mut exit: EventWriter<AppExit>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Escape) {
@@ -35,10 +35,10 @@ pub fn receive_input(
     }
 
     if keyboard_input.just_pressed(KeyCode::B) {
-        adv_ew.send(AdvanceMeshGenerationEvent::default());
+        adv_ew.send(MeshGenRefineEvent::default());
     }
 
     if keyboard_input.just_pressed(KeyCode::V) {
-        fin_ew.send(FinalizeMeshGenerationEvent::default());
+        fin_ew.send(MeshGenAdvanceEvent::default());
     }
 }

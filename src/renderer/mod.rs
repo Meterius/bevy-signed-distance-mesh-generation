@@ -11,13 +11,10 @@ const RENDER_IMAGE_SIZE: (usize, usize) = (2560, 1440);
 const MESH_GENERATION_OUTPUT_FILEPATH: &'static str = "generated_mesh.obj";
 
 #[derive(Debug, Clone, Default, Event)]
-pub struct AdvanceMeshGenerationEvent {}
+pub struct MeshGenRefineEvent {}
 
 #[derive(Debug, Clone, Default, Event)]
-pub struct FinalizeMeshGenerationEvent {}
-
-#[derive(Debug, Clone, Default, Component)]
-pub struct RenderMeshTarget {}
+pub struct MeshGenAdvanceEvent {}
 
 #[derive(Debug, Clone, Default, Resource, Reflect)]
 #[reflect(Resource)]
@@ -42,14 +39,27 @@ struct RenderCudaContext {
     pub handler: CudaHandler,
 }
 
-#[derive(Resource)]
-struct RenderCudaVoxelField {
-    pub field: CudaVoxelField,
+enum RenderMeshGenStage {
+    Empty,
+    VoxelField(CudaVoxelField),
+    Mesh(ObjData)
 }
+
+#[derive(Resource)]
+struct RenderMeshGen {
+    pub stage: RenderMeshGenStage,
+    pub preview_mesh_handle: Handle<Mesh>,
+}
+
+#[derive(Debug, Clone, Default, Component)]
+pub struct RenderMeshGenPreviewMesh {}
 
 // App Systems
 
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+fn setup(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+) {
     let mut image = Image::new_fill(
         Extent3d {
             width: RENDER_IMAGE_SIZE.0 as u32,
@@ -92,32 +102,6 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, mut meshes: 
         ..default()
     }, RenderRelayCameraTarget {}));
 
-    commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.0f32 })),
-            material: materials.add(Color::rgb_u8(124, 144, 255).into()),
-            ..default()
-        },
-        RenderMeshTarget {},
-    ));
-
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(shape::Plane::from_size(25.0f32).into()),
-        material: materials.add(Color::WHITE.into()),
-        transform: Transform::from_xyz(0.0f32, -2.5f32, 0.0f32),
-        ..default()
-    });
-
-    commands.spawn(PointLightBundle {
-        point_light: PointLight {
-            intensity: 1500.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        transform: Transform::from_xyz(4.0, 8.0, 4.0),
-        ..default()
-    });
-
     commands.insert_resource(RenderTargetImage(image));
 }
 
@@ -143,53 +127,101 @@ fn obj_to_bevy_mesh(obj_data: &ObjData) -> Mesh {
     mesh
 }
 
-// Mesh Generation
+// Mesh Gen
 
-fn advance_mesh_generation(
-    mut ev: EventReader<AdvanceMeshGenerationEvent>,
-    mut target_handles: Query<&mut Handle<Mesh>, With<RenderMeshTarget>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut render_context: NonSendMut<RenderCudaContext>,
-    mut render_voxel_field: ResMut<RenderCudaVoxelField>,
+fn update_preview_mesh(
+    mut commands: Commands,
+    render_mesh_gen: ResMut<RenderMeshGen>,
+    render_settings: ResMut<RenderSettings>,
+    mut preview_meshes: Query<(Entity, &mut Handle<Mesh>), With<RenderMeshGenPreviewMesh>>
 ) {
-    if ev.is_empty() {
-        return;
-    }
+    if render_mesh_gen.is_changed() || render_settings.is_changed() {
+        for (preview_id, mut preview_mesh_handle) in preview_meshes.iter_mut() {
+            *preview_mesh_handle = render_mesh_gen.preview_mesh_handle.clone();
 
-    for _ in ev.read() {
-        render_context.handler.refine_voxel_field(&mut render_voxel_field.field);
-        let obj = render_context.handler.voxel_field_to_mesh(&mut render_voxel_field.field);
-
-        let handle = meshes.add(obj_to_bevy_mesh(&obj));
-
-        for mut target_handle in target_handles.iter_mut() {
-            *target_handle = handle.clone();
+            if render_settings.show_wireframe {
+                commands
+                    .entity(preview_id)
+                    .insert(Wireframe::default());
+            } else {
+                commands
+                    .entity(preview_id)
+                    .remove::<Wireframe>();
+            }
         }
     }
 }
 
-fn finalize_mesh_generation(
-    mut ev: EventReader<FinalizeMeshGenerationEvent>,
-    mut target_handles: Query<&mut Handle<Mesh>, With<RenderMeshTarget>>,
+fn handle_mesh_gen_events(
+    mut ev_refine: EventReader<MeshGenRefineEvent>,
+    mut ev_advance: EventReader<MeshGenAdvanceEvent>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut render_context: NonSendMut<RenderCudaContext>,
-    mut render_voxel_field: ResMut<RenderCudaVoxelField>,
+    mut render_mesh_gen: ResMut<RenderMeshGen>,
 ) {
-    if ev.is_empty() {
-        return;
+    if !ev_refine.is_empty() {
+        for _ in ev_refine.read() {
+            let mut stage = RenderMeshGenStage::Empty;
+            std::mem::swap(&mut stage, &mut render_mesh_gen.stage);
+            render_mesh_gen.stage = match stage {
+                RenderMeshGenStage::VoxelField(mut field) => {
+                    render_context.handler.refine_voxel_field(&mut field);
+
+                    let obj = render_context.handler.voxel_field_to_mesh(&mut field);
+                    render_mesh_gen.preview_mesh_handle = meshes.add(obj_to_bevy_mesh(&obj));
+
+                    info!("Mesh Gen: Refined Voxel Field.");
+
+                    RenderMeshGenStage::VoxelField(field)
+                },
+                RenderMeshGenStage::Mesh(obj) => {
+                    info!("Mesh Gen: Refined Mesh Has No Effect.");
+
+                    RenderMeshGenStage::Mesh(obj)
+                },
+                RenderMeshGenStage::Empty => {
+                    info!("Mesh Gen: Refined Empty Has No Effect.");
+
+                    RenderMeshGenStage::Empty
+                },
+            };
+        }
     }
 
-    for _ in ev.read() {
-        let obj = render_context.handler.voxel_field_to_mesh(&mut render_voxel_field.field);
+    if !ev_advance.is_empty() {
+        for _ in ev_advance.read() {
+            let mut stage = RenderMeshGenStage::Empty;
+            std::mem::swap(&mut stage, &mut render_mesh_gen.stage);
+            render_mesh_gen.stage = match stage {
+                RenderMeshGenStage::VoxelField(mut field) => {
+                    let obj = render_context.handler.voxel_field_to_mesh(&mut field);
 
-        let handle = meshes.add(obj_to_bevy_mesh(&obj));
+                    info!("Mesh Gen: Advanced To Mesh Stage.");
 
-        for mut target_handle in target_handles.iter_mut() {
-            *target_handle = handle.clone();
+                    RenderMeshGenStage::Mesh(obj)
+                },
+                RenderMeshGenStage::Mesh(obj) => {
+                    obj.save(MESH_GENERATION_OUTPUT_FILEPATH).unwrap();
+
+                    info!("Stored generated mesh at {MESH_GENERATION_OUTPUT_FILEPATH};");
+                    info!("Mesh Gen: Reset To Empty Stage.");
+
+                    render_mesh_gen.preview_mesh_handle = meshes.add(Mesh::from(shape::Cube { size: 0.0f32 }));
+
+                    RenderMeshGenStage::Empty
+                },
+                RenderMeshGenStage::Empty => {
+                    info!("Mesh Gen: Advanced To Voxel Field Stage.");
+
+                    let field = CudaHandler::create_cuda_voxel_field();
+                    let obj = render_context.handler.voxel_field_to_mesh(&field);
+                    render_mesh_gen.preview_mesh_handle = meshes.add(obj_to_bevy_mesh(&obj));
+
+                    RenderMeshGenStage::VoxelField(field)
+                },
+            };
+
         }
-
-        obj.save(MESH_GENERATION_OUTPUT_FILEPATH).unwrap();
-        info!("Stored generated mesh at {MESH_GENERATION_OUTPUT_FILEPATH};");
     }
 }
 
@@ -197,20 +229,18 @@ fn finalize_mesh_generation(
 
 fn setup_cuda(world: &mut World) {
     let handler = CudaHandler::new();
-    let field = CudaHandler::create_cuda_voxel_field();
+    let preview_mesh_handle = world.resource_mut::<Assets<Mesh>>().add(Mesh::from(shape::Cube { size: 0.0f32 }));
     world.insert_non_send_resource(RenderCudaContext { handler });
-    world.insert_resource(RenderCudaVoxelField { field });
+    world.insert_resource(RenderMeshGen { stage: RenderMeshGenStage::Empty, preview_mesh_handle });
 }
 
 fn render(
-    mut commands: Commands,
     time: Res<Time>,
     mut camera: Query<(&mut Camera, &Projection, &GlobalTransform), With<RenderCameraTarget>>,
     mut relay_camera: Query<&mut Camera, (With<RenderRelayCameraTarget>, Without<RenderCameraTarget>)>,
     mut render_context: NonSendMut<RenderCudaContext>,
     render_settings: Res<RenderSettings>,
     render_target_image: Res<RenderTargetImage>,
-    render_mesh_target: Query<Entity, With<RenderMeshTarget>>,
     mut images: ResMut<Assets<Image>>,
     mut tick: Local<u64>,
 ) {
@@ -219,17 +249,6 @@ fn render(
 
     relay_cam.is_active = !render_settings.show_preview;
     cam.is_active = render_settings.show_preview;
-
-    let render_mesh_target = render_mesh_target.single();
-    if render_settings.show_wireframe {
-        commands
-            .entity(render_mesh_target)
-            .insert(Wireframe::default());
-    } else {
-        commands
-            .entity(render_mesh_target)
-            .remove::<Wireframe>();
-    }
 
     if relay_cam.is_active {
         let globals = crate::bindings::cuda::GlobalsBuffer {
@@ -290,15 +309,15 @@ impl Plugin for RayMarcherRenderPlugin {
     fn build(&self, app: &mut App) {
         // Main App Build
         app.insert_resource(RenderSettings::default())
-            .add_event::<AdvanceMeshGenerationEvent>()
-            .add_event::<FinalizeMeshGenerationEvent>()
+            .add_event::<MeshGenRefineEvent>()
+            .add_event::<MeshGenAdvanceEvent>()
             .add_systems(Startup, (setup, setup_cuda))
             .add_systems(Last, render)
             .add_systems(
                 PostUpdate,
                 (
-                    advance_mesh_generation,
-                    finalize_mesh_generation.after(advance_mesh_generation),
+                    handle_mesh_gen_events,
+                    update_preview_mesh,
                     synchronize_target_sprite,
                 ),
             );

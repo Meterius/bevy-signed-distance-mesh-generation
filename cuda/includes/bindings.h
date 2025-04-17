@@ -63,7 +63,13 @@ struct Triangle {
     struct Vertex vertices[3];
 };
 
-struct TriangleMesh {
-    struct Triangle* triangles;
-    unsigned int triangle_count;
+struct IndexTriangle {
+    unsigned int indices[3];
+};
+
+struct Mesh {
+    struct Vertex* vertices;
+    unsigned int vertex_count;
+
+    struct IndexTriangle* triangles;
 };

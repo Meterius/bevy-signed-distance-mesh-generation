@@ -15,7 +15,7 @@ __device__ vec3 edge_vertex(const McCube &cube, const int i0, const int i1) {
     return mix(cube.vertices[i0], cube.vertices[i1], v);
 }
 
-__device__ unsigned int march_cube(const McCube &cube, Triangle *const triangle_buffer) {
+__device__ unsigned int march_cube(const McCube &cube, Triangle *const triangles) {
     unsigned char cube_index = 0;
 
     for (int i = 0; i < 8; i++) {
@@ -35,7 +35,7 @@ __device__ unsigned int march_cube(const McCube &cube, Triangle *const triangle_
             );
         }
 
-        triangle_buffer[triangle_count] = Triangle {  { vertices[0], vertices[1], vertices[2] } };
+        triangles[triangle_count] = Triangle {  { vertices[0], vertices[1], vertices[2] } };
         triangle_count++;
     }
 

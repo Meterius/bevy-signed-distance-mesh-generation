@@ -28,7 +28,7 @@ pub struct CudaHandler {
     func_compute_render: CudaFunction,
 
     func_compute_refine_voxel_field_by_sdf: CudaFunction,
-    func_compute_mesh_from_voxel_field_by_sdf: CudaFunction,
+    func_compute_surface_triangles_from_voxel_field_by_sdf: CudaFunction,
 
     render_texture_buffer: DynamicCudaSlice<crate::bindings::cuda::Rgba>,
     voxel_field_input_buffer: DynamicCudaSlice<crate::bindings::cuda::Point>,
@@ -73,19 +73,19 @@ impl CudaHandler {
                 "compute_mesh_generation",
                 &[
                     "compute_refine_voxel_field_by_sdf",
-                    "compute_mesh_from_voxel_field_by_sdf",
+                    "compute_surface_triangles_from_voxel_field_by_sdf",
                 ],
             )
             .unwrap();
 
         let func_compute_render = device.get_func("compute_render", "compute_render").unwrap();
-        let func_compute_refine_voxel_field_by_sdf = device
-            .get_func("compute_mesh_generation", "compute_refine_voxel_field_by_sdf")
+        let func_compute_surface_triangles_from_voxel_field_by_sdf = device
+            .get_func("compute_mesh_generation", "compute_surface_triangles_from_voxel_field_by_sdf")
             .unwrap();
-        let func_compute_mesh_from_voxel_field_by_sdf = device
+        let func_compute_refine_voxel_field_by_sdf = device
             .get_func(
                 "compute_mesh_generation",
-                "compute_mesh_from_voxel_field_by_sdf",
+                "compute_refine_voxel_field_by_sdf",
             )
             .unwrap();
 
@@ -97,7 +97,7 @@ impl CudaHandler {
         let mesh_triangles_buffer = DynamicCudaSlice { device: device.clone(), data: None };
 
         return Self {
-            device, func_compute_render, func_compute_mesh_from_voxel_field_by_sdf, func_compute_refine_voxel_field_by_sdf,
+            device, func_compute_render, func_compute_surface_triangles_from_voxel_field_by_sdf, func_compute_refine_voxel_field_by_sdf,
             mesh_triangles_buffer, voxel_field_input_buffer, voxel_field_output_buffer, render_texture_buffer, _marker: PhantomData {},
         }
     }
@@ -201,7 +201,7 @@ impl CudaHandler {
         );
     }
 
-    pub fn voxel_field_to_mesh(&mut self, field: &mut CudaVoxelField) -> obj::ObjData {
+    pub fn voxel_field_to_mesh(&mut self, field: &CudaVoxelField) -> obj::ObjData {
         let upper_triangle_count = field.voxels.len() * 5;
 
         info!(
@@ -218,14 +218,14 @@ impl CudaHandler {
             unsafe {
                 cudarc::driver::result::memcpy_htod_sync(
                     input_ptr,
-                    field.voxels.as_mut_slice(),
+                    field.voxels.as_slice(),
                 )
                     .unwrap()
             };
             
             unsafe {
                 self
-                    .func_compute_mesh_from_voxel_field_by_sdf
+                    .func_compute_surface_triangles_from_voxel_field_by_sdf
                     .clone()
                     .launch(
                         LaunchConfig {
@@ -243,10 +243,7 @@ impl CudaHandler {
                                 voxel_count: field.voxels.len() as _,
                                 voxel_size: field.voxel_size,
                             },
-                            crate::bindings::cuda::TriangleMesh {
-                                triangles: std::mem::transmute(triangles_ptr),
-                                triangle_count: upper_triangle_count as _,
-                            },
+                            triangles_ptr,
                         ),
                     )
                     .unwrap()

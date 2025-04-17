@@ -61,9 +61,9 @@ extern "C" __global__ void compute_refine_voxel_field_by_sdf(
     }
 }
 
-extern "C" __global__ void compute_mesh_from_voxel_field_by_sdf(
+extern "C" __global__ void compute_surface_triangles_from_voxel_field_by_sdf(
     VoxelField field,
-    TriangleMesh mesh
+    Triangle* triangles
 ) {
     const vec3 voxel_size = from_point(field.voxel_size);
     const unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -85,12 +85,12 @@ extern "C" __global__ void compute_mesh_from_voxel_field_by_sdf(
             cube.values[c] = sd_obj(v);
         }
 
-        unsigned int triangle_count = march_cube(cube, &mesh.triangles[triangle_start]);
+        unsigned int triangle_count = march_cube(cube, &triangles[triangle_start]);
 
         for (unsigned int i = triangle_start; i < triangle_start + triangle_count; i++) {
-            vec3 v0 = from_point(mesh.triangles[i].vertices[0].position);
-            vec3 v1 = from_point(mesh.triangles[i].vertices[1].position);
-            vec3 v2 = from_point(mesh.triangles[i].vertices[2].position);
+            vec3 v0 = from_point(triangles[i].vertices[0].position);
+            vec3 v1 = from_point(triangles[i].vertices[1].position);
+            vec3 v2 = from_point(triangles[i].vertices[2].position);
 
             v0 = closest_surface_point(sd_obj, v0);
             v1 = closest_surface_point(sd_obj, v1);
@@ -108,13 +108,13 @@ extern "C" __global__ void compute_mesh_from_voxel_field_by_sdf(
             vec3 o_n1 = n1;
             vec3 o_n2 = change_orientation ? n0 : n2;
 
-            mesh.triangles[i].vertices[0] = { to_point(change_orientation ? v2 : v0), to_point(o_n0) };
-            mesh.triangles[i].vertices[1] = { to_point(v1), to_point(o_n1) };
-            mesh.triangles[i].vertices[2] = { to_point(change_orientation ? v0 : v2), to_point(o_n2) };
+            triangles[i].vertices[0] = { to_point(change_orientation ? v2 : v0), to_point(o_n0) };
+            triangles[i].vertices[1] = { to_point(v1), to_point(o_n1) };
+            triangles[i].vertices[2] = { to_point(change_orientation ? v0 : v2), to_point(o_n2) };
         }
 
         for (unsigned int i = triangle_start + triangle_count ; i < triangle_end; i++) {
-            mesh.triangles[i] = { POINT_NAN, POINT_NAN };
+            triangles[i] = { POINT_NAN, POINT_NAN };
         }
     }
 }

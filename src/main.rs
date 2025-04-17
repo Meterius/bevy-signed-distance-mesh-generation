@@ -1,5 +1,5 @@
 use crate::example_scene::ExampleScenePlugin;
-use crate::renderer::{AdvanceMeshGenerationEvent, FinalizeMeshGenerationEvent};
+use crate::renderer::{MeshGenRefineEvent, MeshGenAdvanceEvent};
 use bevy::app::AppExit;
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
 use bevy::pbr::wireframe::WireframeConfig;
@@ -18,17 +18,17 @@ pub mod renderer;
 mod cuda;
 
 fn headless_startup(
-    mut ew_adv: EventWriter<AdvanceMeshGenerationEvent>,
-    mut ew_fin: EventWriter<FinalizeMeshGenerationEvent>,
+    mut ew_adv: EventWriter<MeshGenRefineEvent>,
+    mut ew_fin: EventWriter<MeshGenAdvanceEvent>,
     mut ew_exit: EventWriter<AppExit>,
 ) {
-    ew_adv.send(AdvanceMeshGenerationEvent::default());
+    ew_adv.send(MeshGenRefineEvent::default());
 
     for _ in 0..2 {
-        ew_adv.send(AdvanceMeshGenerationEvent::default());
+        ew_adv.send(MeshGenRefineEvent::default());
     }
 
-    ew_fin.send(FinalizeMeshGenerationEvent::default());
+    ew_fin.send(MeshGenAdvanceEvent::default());
 
     ew_exit.send(AppExit::default());
 }

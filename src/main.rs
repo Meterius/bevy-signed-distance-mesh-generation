@@ -2,7 +2,7 @@ use crate::example_scene::ExampleScenePlugin;
 use crate::renderer::{AdvanceMeshGenerationEvent, FinalizeMeshGenerationEvent};
 use bevy::app::AppExit;
 use bevy::diagnostic::{EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
-use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
+use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
 use bevy::render::settings::{Backends, RenderCreation, WgpuFeatures, WgpuSettings};
 use bevy::render::RenderPlugin;

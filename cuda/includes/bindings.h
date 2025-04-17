@@ -46,6 +46,8 @@ struct Point {
     float z;
 };
 
+#define POINT_NAN Point { NAN, NAN, NAN }
+
 struct VoxelField {
     struct Point voxel_size;
     struct Point* voxels;
@@ -57,6 +59,11 @@ struct Vertex {
     struct Point normal;
 };
 
-struct NaiveTriMesh {
-    struct Vertex* vertices;
+struct Triangle {
+    struct Vertex vertices[3];
+};
+
+struct TriangleMesh {
+    struct Triangle* triangles;
+    unsigned int triangle_count;
 };

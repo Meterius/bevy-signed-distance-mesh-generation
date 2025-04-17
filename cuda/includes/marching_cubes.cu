@@ -15,15 +15,7 @@ __device__ vec3 edge_vertex(const McCube &cube, const int i0, const int i1) {
     return mix(cube.vertices[i0], cube.vertices[i1], v);
 }
 
-__device__ void write_triangle(const McCube &cube, const int edge_indices[3], Vertex *const triangle) {
-    for (int i = 0; i < 3; i++) {
-        triangle[i].position = to_point(
-            edge_vertex(cube, MC_EDGE_TABLE[edge_indices[i]][0], MC_EDGE_TABLE[edge_indices[i]][1])
-        );
-    }
-}
-
-__device__ int march_cube(const McCube &cube, Vertex *const triangles) {
+__device__ unsigned int march_cube(const McCube &cube, Triangle *const triangle_buffer) {
     unsigned char cube_index = 0;
 
     for (int i = 0; i < 8; i++) {
@@ -32,10 +24,18 @@ __device__ int march_cube(const McCube &cube, Vertex *const triangles) {
 
     auto cube_triangles = MC_TRIANGLE_TABLE[cube_index];
 
-    int triangle_count = 0;
+    unsigned int triangle_count = 0;
     for (int i = 0; cube_triangles[i] != -1; i += 3) {
         int edge_indices[3] = { cube_triangles[i], cube_triangles[i + 1], cube_triangles[i + 2] };
-        write_triangle(cube, edge_indices, &triangles[i]);
+
+        Vertex vertices[3];
+        for (int j = 0; j < 3; j++) {
+            vertices[j].position = to_point(
+                edge_vertex(cube, MC_EDGE_TABLE[edge_indices[j]][0], MC_EDGE_TABLE[edge_indices[j]][1])
+            );
+        }
+
+        triangle_buffer[triangle_count] = Triangle {  { vertices[0], vertices[1], vertices[2] } };
         triangle_count++;
     }
 

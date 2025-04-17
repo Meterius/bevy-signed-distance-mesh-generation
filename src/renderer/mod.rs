@@ -210,7 +210,7 @@ fn render(
     mut render_context: NonSendMut<RenderCudaContext>,
     render_settings: Res<RenderSettings>,
     render_target_image: Res<RenderTargetImage>,
-    mut render_mesh_target: Query<Entity, With<RenderMeshTarget>>,
+    render_mesh_target: Query<Entity, With<RenderMeshTarget>>,
     mut images: ResMut<Assets<Image>>,
     mut tick: Local<u64>,
 ) {

@@ -5,7 +5,6 @@ use bevy::log::{error, info};
 use cudarc::driver::{CudaDevice, CudaFunction, CudaSlice, DevicePtr, DeviceRepr, DeviceSlice, LaunchAsync, LaunchConfig};
 use cudarc::driver::sys::CUdeviceptr;
 use cudarc::nvrtc::Ptx;
-use itertools::Itertools;
 use crate::bindings::cuda::{BLOCK_SIZE, MESH_GENERATION_BB_SIZE, MESH_GENERATION_INIT_FACTOR};
 
 struct DynamicCudaSlice<T> {
@@ -34,7 +33,7 @@ pub struct CudaHandler {
     render_texture_buffer: DynamicCudaSlice<crate::bindings::cuda::Rgba>,
     voxel_field_input_buffer: DynamicCudaSlice<crate::bindings::cuda::Point>,
     voxel_field_output_buffer: DynamicCudaSlice<crate::bindings::cuda::Point>,
-    mesh_triangles_buffer: DynamicCudaSlice<crate::bindings::cuda::Vertex>,
+    mesh_triangles_buffer: DynamicCudaSlice<crate::bindings::cuda::Triangle>,
 
     _marker: PhantomData<bool>
 }
@@ -213,7 +212,7 @@ impl CudaHandler {
         );
 
         let input_ptr = unsafe { self.voxel_field_input_buffer.get_or_alloc_sync(field.voxels.len()) };
-        let triangles_ptr = unsafe { self.mesh_triangles_buffer.get_or_alloc_sync(3 * upper_triangle_count) };
+        let triangles_ptr = unsafe { self.mesh_triangles_buffer.get_or_alloc_sync(upper_triangle_count) };
 
         if field.voxels.len() != 0 {
             unsafe {
@@ -244,15 +243,16 @@ impl CudaHandler {
                                 voxel_count: field.voxels.len() as _,
                                 voxel_size: field.voxel_size,
                             },
-                            crate::bindings::cuda::NaiveTriMesh {
-                                vertices: std::mem::transmute(triangles_ptr),
+                            crate::bindings::cuda::TriangleMesh {
+                                triangles: std::mem::transmute(triangles_ptr),
+                                triangle_count: upper_triangle_count as _,
                             },
                         ),
                     )
                     .unwrap()
             };
 
-            let mut raw_triangles = vec![crate::bindings::cuda::Vertex::default(); upper_triangle_count * 3];
+            let mut raw_triangles = vec![crate::bindings::cuda::Triangle::default(); upper_triangle_count];
 
             unsafe {
                 cudarc::driver::result::memcpy_dtoh_sync(
@@ -288,12 +288,12 @@ impl CudaHandler {
                     .clone()
             };
 
-            for (v0, v1, v2) in raw_triangles.into_iter().tuples() {
-                if v0.position.x.is_finite() {
+            for triangle in raw_triangles.into_iter() {
+                if triangle.vertices[0].position.x.is_finite() {
                     indices.push([
-                        add_or_get_vertex(v0),
-                        add_or_get_vertex(v1),
-                        add_or_get_vertex(v2),
+                        add_or_get_vertex(triangle.vertices[0]),
+                        add_or_get_vertex(triangle.vertices[1]),
+                        add_or_get_vertex(triangle.vertices[2]),
                     ]);
                 }
             }
